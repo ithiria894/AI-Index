@@ -90,12 +90,17 @@ Enable in `.claude/settings.json`:
 { "env": { "ENABLE_LSP_TOOL": "1" } }
 ```
 
-Install for your stack:
+**VS Code extension vs terminal — it matters here.** If you're using Claude Code inside VS Code, the language servers are already running — VS Code starts them for you (tsserver for TypeScript, Pylance for Python, etc.). Just enable the flag and LSP works immediately.
+
+If you're using Claude Code in a terminal, you need to install the language servers yourself:
+
 ```bash
 pip install python-lsp-server                         # Python
 npm install -g typescript-language-server typescript  # TypeScript
 go install golang.org/x/tools/gopls@latest            # Go
 ```
+
+Bottom line: VS Code gives you LSP for free. Terminal requires one install step. Either way, enable the flag.
 
 ---
 
