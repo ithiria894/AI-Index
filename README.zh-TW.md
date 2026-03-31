@@ -16,50 +16,64 @@
 
 ---
 
-## 核心洞察
+## 核心概念
 
-AI coding assistant 的瓶頸不是智慧——是導航。Claude 拿到正確的資訊後推理得很好。問題是它把大部分能力浪費在「找資訊」這件事上。
+**將整個 repo 變成一個 graph，用 BFS + LSP 做搜尋和遍歷。**
 
-三個技能解決這個問題：
+就是這樣。AI coding assistant 的瓶頸不是智慧——是導航。Claude 拿到正確的資訊後推理得很好。問題是它把大部分能力浪費在「找資訊」這件事上。
 
 ```
-/generate-index          → 建立地圖（deterministic script + Claude 精修）
+/generate-index          → 建立 graph（deterministic script + Claude 精修）
         ↓
-    AI_INDEX.md          → 地圖本身（routing manifest，有 Connects to edges）
+    AI_INDEX.md          → graph 本身（adjacency list——nodes 是 domains，edges 是連接）
         ↓
-/investigate-module      → 讀地圖上的某個節點（有根據，有來源）
+/investigate-module      → 讀 graph 上的某個 node（有根據，有來源）
 /trace-impact            → 沿著 edges 做 BFS（找出所有受影響的位置）
 ```
 
-地圖是一張網——你的程式碼庫裡每個域以及它們之間的連接。在這張網的任何一個點丟入一個 bug 或 feature 需求，系統就沿著所有路徑追蹤出受影響的位置——在你寫下第一行改動之前。
+在這張 graph 的任何一個 node 丟入一個 bug 或 feature 需求，系統就沿著所有 edges 追蹤出受影響的位置——在你寫下第一行改動之前。
 
 ---
 
-## AI_INDEX.md — 給 Claude 一張地圖
+## AI_INDEX.md — 不是檔案列表，是 graph
 
-每次開新的 session，你都要花 10 分鐘重新幫 Claude 定位。「auth 邏輯在這裡、API routes 在那裡、資料庫 model 在...」Claude 問出根本不需要問的問題，讀了不相關的檔案，然後對它根本沒開過的程式碼侃侃而談。
+市面上有幾十個 AI_INDEX template。大部分長這樣：
 
-如果 Claude 一開始就能讀一個檔案，告訴它所有東西在哪裡，會怎樣？
-
-這就是 AI_INDEX.md。你把它放在 repo 根目錄，Claude 一開始就先讀它。它不是設計文件——不解釋程式碼怎麼運作。它是機場的指示牌：12 號登機口往這走。就這樣。
-
-```markdown
-### 規則評估
-- 入口：src/rule_evaluator.py
-- 搜尋關鍵字：evaluate_rule, ActionExecutor
-- 測試：tests/test_rule_evaluator.py
-- 連接至：
-  - 內容層 — 經由 ActionExecutor.execute()
-  - API 層 — 經由 POST /api/evaluate（src/api/routes.py）
+```
+auth → src/auth/
+api  → src/api/
+db   → src/models/
 ```
 
-`連接至` 這個欄位很關鍵。當你追蹤一個改動會影響哪些地方時，這些連接告訴 Claude 接下來要去哪些域檢查——而不需要把中間所有檔案都讀一遍。
+這是一個 flat file list。Claude 知道去哪裡找東西，但它完全不知道改了 `auth` 會影響 `api`。沒有任何結構把它們連起來。這是一本電話簿，不是一張地圖。
 
-有一件事要注意：一旦這個檔案開始解釋「程式碼怎麼運作」而不是「東西在哪裡」，Claude 就會從 index 直接回答問題，不去讀原始碼。那就是自信型 hallucination 的來源。控制在 250 行以內，只寫檔案路徑和搜尋關鍵字。
+我們的 AI_INDEX 是一個 **graph data structure**——具體來說是 adjacency list（鄰接表）：
 
-**怎樣生成：** 不用手寫。直接跑 `/generate-index` — 它掃你的 imports、目錄結構、exported symbols，然後輸出整個 AI_INDEX.md，所有 `連接至` 的 edges 都填好了。Review 一下 output，加上它漏掉的部分（例如 HTTP endpoints 或前後端的連接），搞掂。
+```markdown
+### Auth
+- Entry: src/auth/middleware.py
+- Search: verifyToken, AuthError
+- Tests: tests/test_auth.py
+- 連接至：
+  - API layer — via requireAuth() in src/api/routes.py
+  - DB layer — via UserModel.findById() in src/models/user.py
 
-**保持新鮮度：** 過時的地圖比沒有地圖更危險——Claude 會信任它然後走上死路。每次修完 bug 或加完 feature，如果結構有變（新 module、改名的檔案、新的跨域連接），就重跑 generator 或手動更新受影響的條目。你可以用 CLAUDE.md 規則、pre-commit hook、或者靠紀律來 enforce——看你的團隊適合哪種。
+### API layer
+- Entry: src/api/routes.py
+- Search: router, handleRequest
+- Tests: tests/test_routes.py
+- 連接至：
+  - Auth — via requireAuth middleware
+  - Rule evaluation — via POST /api/evaluate
+```
+
+每個 domain 是一個 **node**。每個 `連接至` 是一條 **edge**。這就是 `/trace-impact` 能運作的原因——它是在這個 graph 上面做 BFS 遍歷。沒有 edges，你只有一個目錄列表；有了 edges，你有一個演算法可以走的網絡。
+
+Edges 來自真正的 imports，不是猜的。`/generate-index` 掃描你的 actual import statements 來建立 graph。
+
+一個原則：控制在 250 行以內，只寫指標。一旦開始解釋「程式碼怎麼運作」而不是「東西在哪裡」，Claude 就會從 index 推論，不讀原始碼。
+
+**保持新鮮度：** 過時的 graph 比沒有 graph 更危險——Claude 會信任它然後走上死路。結構有變就重跑 `/generate-index`。
 
 參考：[`templates/AI_INDEX_TEMPLATE.md`](templates/AI_INDEX_TEMPLATE.md)
 

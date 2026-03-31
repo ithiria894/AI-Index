@@ -16,50 +16,64 @@ Here's how to fix it.
 
 ---
 
-## The core insight
+## The core idea
 
-The bottleneck for AI coding assistants isn't intelligence — it's navigation. Claude can reason well once it has the right information. The problem is it wastes most of its capacity *finding* that information.
+**Turn your entire repo into a graph. Use BFS + LSP to search and traverse it.**
 
-Three skills solve this:
+That's the whole thing. The bottleneck for AI coding assistants isn't intelligence — it's navigation. Claude can reason well once it has the right information. The problem is it wastes most of its capacity *finding* that information.
 
 ```
-/generate-index          → build the map (deterministic script + Claude refine)
+/generate-index          → build the graph (deterministic script + Claude refine)
         ↓
-    AI_INDEX.md          → the map itself (routing manifest with Connects to edges)
+    AI_INDEX.md          → the graph itself (adjacency list — nodes are domains, edges are connections)
         ↓
-/investigate-module      → read a specific node on the map (grounded, with sources)
-/trace-impact            → BFS along the edges (find everything affected by a change)
+/investigate-module      → read a specific node (grounded, with sources)
+/trace-impact            → BFS along the edges (find everything a change affects)
 ```
 
-The map is a web of every domain in your codebase and how they connect. Drop a bug or a feature request anywhere on that web, and the system traces every path that's affected — before you write a single line of code.
+Drop a bug or a feature request anywhere on this graph, and the system traces every connected path to find what's affected — before you write a single line of code.
 
 ---
 
-## AI_INDEX.md — give Claude a map
+## AI_INDEX.md — not a file list, a graph
 
-Every new session, you spend 10 minutes re-orienting Claude. "The auth logic is in... the routes are in... the models are..." Claude asks questions it shouldn't have to ask. It reads the wrong files. It explains code it hasn't even opened.
+There are dozens of AI_INDEX templates out there. Most look like this:
 
-What if Claude read one file first that just tells it where everything is?
-
-That's AI_INDEX.md. You put it in your repo root. Claude reads it before anything else. It's not a design doc — it doesn't explain how your code works. It's airport signs. Gate 12 is this way. Just that.
-
-```markdown
-### Rule evaluation
-- Entry: src/rule_evaluator.py
-- Search: evaluate_rule, ActionExecutor
-- Tests: tests/test_rule_evaluator.py
-- Connects to:
-  - Content layer — via ActionExecutor.execute()
-  - API layer — via POST /api/evaluate (src/api/routes.py)
+```
+auth → src/auth/
+api  → src/api/
+db   → src/models/
 ```
 
-The `Connects to` part matters a lot. When you're tracing what breaks after a change, these connections tell Claude which other domains to check — without reading every file in between.
+That's a flat file list. Claude knows where to find things, but it has no idea that changing `auth` will break `api`. There's no structure connecting them. It's a phonebook, not a map.
 
-One thing to keep in mind: the moment this file starts explaining *how* things work instead of *where* they are, Claude will start reasoning from the index instead of reading the actual code. That's where the confident wrong answers come from. Keep it under 250 lines, file paths and keywords only.
+Our AI_INDEX is a **graph data structure** — specifically an adjacency list:
 
-**Generating it:** You don't have to write this by hand. Just run `/generate-index` — it scans your imports, directory structure, and exported symbols, then outputs the whole AI_INDEX.md with all the `Connects to` edges filled in. Review the output, add anything it missed (like HTTP endpoints or frontend-backend connections), done.
+```markdown
+### Auth
+- Entry: src/auth/middleware.py
+- Search: verifyToken, AuthError
+- Tests: tests/test_auth.py
+- Connects to:
+  - API layer — via requireAuth() in src/api/routes.py
+  - DB layer — via UserModel.findById() in src/models/user.py
 
-**Keeping it fresh:** A stale map is worse than no map — Claude trusts it and follows dead paths. After every bug fix or feature that changes the structure (new modules, renamed files, new cross-domain connections), re-run the generator or update the affected entries manually. You can enforce this with a CLAUDE.md rule, a pre-commit hook, or just discipline — pick whatever works for your team.
+### API layer
+- Entry: src/api/routes.py
+- Search: router, handleRequest
+- Tests: tests/test_routes.py
+- Connects to:
+  - Auth — via requireAuth middleware
+  - Rule evaluation — via POST /api/evaluate
+```
+
+Every domain is a **node**. Every `Connects to` is an **edge**. That's what makes `/trace-impact` possible — it's a BFS traversal on this graph. Without edges, you have a directory listing. With them, you have a network that an algorithm can walk.
+
+The edges come from real imports, not guessing. `/generate-index` scans your actual import statements to build the graph. It doesn't infer — it reads.
+
+One rule: keep it under 250 lines, pointers only. The moment it starts explaining *how* things work instead of *where* they are, Claude reasons from the index instead of reading source code. That's where the confident wrong answers come from.
+
+**Keeping it fresh:** A stale graph is worse than no graph — Claude trusts it and follows dead paths. After structural changes (new modules, renamed files, new connections), re-run `/generate-index`.
 
 See [`templates/AI_INDEX_TEMPLATE.md`](templates/AI_INDEX_TEMPLATE.md).
 
