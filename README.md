@@ -207,15 +207,19 @@ Read these files from https://github.com/ithiria894/claude-code-best-practices:
 - templates/AI_INDEX_TEMPLATE.md
 - CLAUDE.md
 
-Then explain each component to me in plain language:
-1. What /investigate-module does and when to use it
-2. What /trace-impact does and when to use it
-3. What AI_INDEX.md is and what I need to write for this repo
-4. What the <investigate_before_answering> rule does in CLAUDE.md
-5. What enabling LSP means and what to install for this project's stack
+Then explain each component to me by starting with the pain point it solves —
+what frustrating thing happens without it, why it happens, and how this fixes it.
+Use plain language. Be specific. I should be able to say "yes that happens to me" before you explain the solution.
 
-After explaining, ask me which ones I want to set up. Install only what I confirm.
-Do not install anything before asking.
+Explain these five:
+1. /investigate-module — what goes wrong when Claude answers questions about code it hasn't actually read
+2. /trace-impact — what goes wrong when you change something and don't know what else breaks
+3. AI_INDEX.md — why Claude gets confused or slow on a codebase it hasn't seen, and what the index does about it
+4. The <investigate_before_answering> CLAUDE.md rule — why telling Claude "be careful" doesn't work, and what does
+5. LSP — why searching for code with grep wastes tokens and causes mistakes, and what LSP does differently
+
+After explaining all five, ask me which ones I want to set up.
+Install only what I confirm. Do not install anything before asking.
 ```
 
 ---
