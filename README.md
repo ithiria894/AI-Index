@@ -1,5 +1,7 @@
 # Claude Code Best Practices
 
+[繁體中文](README.zh-TW.md)
+
 You ask Claude about a function. It explains it confidently and in detail.
 
 You build on that explanation for an hour.
