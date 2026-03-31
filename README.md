@@ -1,36 +1,40 @@
 # Claude Code Best Practices
 
-A living collection of battle-tested patterns for using Claude Code on real codebases — built from research, source code analysis, and hands-on experience.
+You ask Claude about a function. It explains it confidently and in detail.
 
-**Core problem this solves:**
-- Read too little → Claude guesses → hallucinations
-- Read too much → context fills → session degrades, costs explode
+You build on that explanation for an hour.
 
-Every technique here has a cited source or is derived from first-principles analysis. No vibes-based suggestions.
+Then you find out it was wrong.
 
 ---
 
-## Contents
+Or this one: you change a function, Claude helps you finish it, tests pass, you ship. Three days later someone in code review points out that four other places call that function — and they're all broken now. Claude never mentioned them. You didn't know to ask.
 
-| | |
-|---|---|
-| [Investigation system](#investigation-system-aiindex--lsp--skills) | AI_INDEX + LSP + skills — how Claude finds what it needs |
-| [CLAUDE.md configuration](#claudemd-configuration) | XML tags, instruction budget, hard rules |
-| [Autonomy rules](#autonomy-rules) | When to ask, when to just do it |
-| [Context management](#context-management) | /clear, /compact, writing state to files |
-| [Templates and skills](#templates-and-skills) | Copy-paste ready files |
+These aren't edge cases. They happen constantly on real codebases. And they share one root cause: **Claude doesn't have a reliable way to navigate your codebase.** It reads too little and guesses, or reads too much and burns all your tokens before getting to the actual work.
+
+This repo fixes that.
 
 ---
 
-## Investigation system: AI_INDEX + LSP + skills
+## The fix: give Claude a navigation system
 
-These three work together as one system. AI_INDEX tells Claude where to start. LSP finds exactly what's connected. The skills run the workflow.
+The core idea is simple: Claude doesn't just need your source code. It needs a navigation system — a way to know where to look, how to get there efficiently, and what connects to what.
 
-### AI_INDEX.md — one per repo, the first thing Claude reads
+Three things work together to build that:
 
-Every repo gets one `AI_INDEX.md` in its root. When Claude starts work on a codebase, this is the first file it navigates to — not a source file, not a README. The index.
+---
 
-Its only job: tell Claude *where to look*, not *how the code works*. Think airport signage. The sign points to Gate 12 — it doesn't explain how the plane flies.
+### AI_INDEX.md — the map
+
+**The problem without it:**
+
+Every new session, you spend 10–15 minutes re-orienting Claude. "The auth logic is in... the API routes are in... the database models are..." Claude asks questions it shouldn't need to ask. It reads irrelevant files. It confidently explains code it hasn't actually opened.
+
+**What it does:**
+
+One file in your repo root. Claude reads it first, before anything else. It maps each domain: where it lives, what to search for, what tests cover it, and — critically — how it connects to other domains.
+
+It's not a design document. It doesn't explain how the code works. It's airport signage: Gate 12 is this way. That's all.
 
 ```markdown
 # AI_INDEX.md
@@ -38,8 +42,6 @@ Its only job: tell Claude *where to look*, not *how the code works*. Think airpo
 ## How to use this file
 - Navigation only. Not source of truth.
 - Read actual source files before making any claim.
-
-## Main domains
 
 ### Rule evaluation
 - Entry: src/rule_evaluator.py
@@ -50,19 +52,23 @@ Its only job: tell Claude *where to look*, not *how the code works*. Think airpo
   - API layer — via POST /api/evaluate (src/api/routes.py)
 ```
 
-The `Connects to` section is critical. It maps the edges between domains without explaining how they work. When `/trace-impact` runs BFS outward from a changed symbol, it uses these connections to cross domain boundaries.
+The `Connects to` section is what makes cross-feature work possible. When you trace the impact of a change, these connections tell Claude which domains to check next — without reading every file in between.
 
-**Healthy index:** under 250 lines, 4–8 lines per domain, file paths and grep terms only, says "not source of truth".
+**Keep it healthy:** under 250 lines, 4–8 lines per domain, file paths and grep terms only. The moment it starts containing prose explanations or words like "usually" and "roughly" — rewrite those entries as pointers. Claude will start reasoning from the index instead of the source, and that's exactly where the confident wrong answers come from.
 
-**Needs rewriting:** prose descriptions, data flow summaries, edge case conclusions, words like "usually" or "roughly" — anything Claude could use to answer a question without reading source. That's how confident hallucinations happen.
-
-See [`templates/AI_INDEX_TEMPLATE.md`](templates/AI_INDEX_TEMPLATE.md) for the full format.
+See [`templates/AI_INDEX_TEMPLATE.md`](templates/AI_INDEX_TEMPLATE.md).
 
 ---
 
 ### LSP — required install
 
-LSP (Language Server Protocol) is how Claude finds every place a symbol is used — callers, imports, implementations. The skills rely on it. Without LSP, Claude falls back to grep.
+**The problem without it:**
+
+You ask Claude to find every place a function is used. Claude uses grep. Grep is string matching — it finds the function name anywhere it appears: comments, unrelated variable names, files from a completely different part of the codebase. You get 40 results. 15 are noise. Claude reads them all. Half your token budget is gone before any real work starts.
+
+**What it does:**
+
+LSP (Language Server Protocol) asks the language's type checker directly. It understands what the symbol *is*, not just where the string appears. The result is semantically precise: these exact call sites, nothing else.
 
 | | grep | LSP findReferences |
 |---|---|---|
@@ -70,7 +76,7 @@ LSP (Language Server Protocol) is how Claude finds every place a symbol is used 
 | Token cost | high | 20x lower |
 | Accuracy | string match, false positives | semantic, zero false positives |
 
-Enable in `settings.json`:
+Enable in `.claude/settings.json`:
 ```json
 { "env": { "ENABLE_LSP_TOOL": "1" } }
 ```
@@ -86,21 +92,43 @@ go install golang.org/x/tools/gopls@latest            # Go
 
 ### The two skills
 
-**`/investigate-module`** — Use before making any claim about a module you haven't read.
+**`/investigate-module`**
 
-Workflow: reads AI_INDEX to find the domain → grep/LSP to locate the exact file and function → reads only the relevant section (line range, not whole file) → returns exactly what it read so you can verify.
+**The problem without it:**
 
-Never reads the whole codebase. Never guesses. If it can't find something, it says uncertain.
+You ask Claude about a module. It gives you a detailed explanation. It sounds completely right. Half of it is wrong — Claude filled the gaps from training data instead of reading your actual code. By the time you discover this, you've already built on top of the wrong assumption.
+
+**What it does:**
+
+Forces grounded investigation before any answer. Reads AI_INDEX to find the domain → uses grep/LSP to locate the exact file and function → reads only the relevant section (line ranges, not whole files) → names exactly what it read so you can verify. If it can't find something, it says uncertain instead of guessing.
+
+Use it before making any claim about a module you haven't looked at in this session.
 
 ---
 
-**`/trace-impact`** — Use before adding a feature or fixing a bug.
+**`/trace-impact`**
 
-Workflow: starts at the changed symbol → LSP findReferences for direct callers (Level 1) → findReferences on each caller for indirect callers (Level 2) → checks AI_INDEX `Connects to` for cross-domain paths → finds affected tests.
+**The problem without it:**
 
-Stops when it hits an external API boundary, a stable interface contract, or 3+ hops from the origin. Reports: must change / might change / tests to verify / uncertain.
+You change a function. You test it. It works. You ship it. Then you find out three other services called that function, a frontend type depended on its return shape, and a test mock was hardcoded to its old behavior. None of this was obvious. Claude didn't warn you because you didn't ask, and Claude doesn't know what it doesn't know.
 
-Coding is a web — change one thing and something connected breaks. This skill maps the web before you touch anything.
+**What it does:**
+
+Before you touch anything, maps every place that will be affected. It uses a breadth-first search through your codebase:
+
+1. **Level 0** — the symbol you're changing
+2. **Level 1** — everything that directly calls it (via LSP findReferences — exact, not grep)
+3. **Level 2** — everything that calls those callers
+4. **Cross-domain** — follows AI_INDEX `Connects to` entries to catch paths that cross module boundaries
+5. **Tests** — finds all tests that cover anything in the affected set
+
+Why breadth-first? Because you want to see all the obvious direct impact before diving into second-order effects. It's systematic: nothing slips through because you happened to trace one path before another.
+
+Stops at external API boundaries and domain edges — it doesn't follow every chain to infinity, just far enough to catch real breakage.
+
+Result: a list of what must change, what might need updating, and what tests to verify — before you write a single line.
+
+Use it before every non-trivial change.
 
 ---
 
@@ -110,25 +138,26 @@ Coding is a web — change one thing and something connected breaks. This skill 
 Task: fix a bug in rule_evaluator.py
 
 1. /trace-impact rule_evaluator.py:evaluate_rule
-   → finds callers, cross-domain connections, affected tests
-   → you now know the full blast radius
+   → you now know the full blast radius before touching anything
 
-2. /investigate-module for any caller you need to understand
-   → reads only the relevant function, names the source
-   → you now have grounded facts, not guesses
+2. /investigate-module for any part you need to understand
+   → grounded facts, not guesses, with sources named
 
 3. Make the change
    → you already know what else needs updating
-   → no surprises
 ```
 
 ---
 
 ## CLAUDE.md configuration
 
-### XML tags survive context pressure
+### The problem: "be careful" doesn't work
 
-Anthropic injects your CLAUDE.md with: *"this context may or may not be relevant."* Under load, markdown headings get deprioritized. XML tags don't — they're a high-priority structure in Claude's training.
+You add a rule to CLAUDE.md: "Always verify against source code before answering." Claude ignores it two messages later. You bold it. Still ignored. You move it to the top. Better, but still inconsistent.
+
+This isn't Claude being difficult. Anthropic wraps your CLAUDE.md with: *"this context may or may not be relevant."* Under context pressure, markdown headings get deprioritized. The rules are there, but they're losing the competition for Claude's attention.
+
+**What works:** XML tags. They're a high-priority structure in Claude's training and survive context pressure far better than any markdown formatting.
 
 ```xml
 <investigate_before_answering>
@@ -142,15 +171,15 @@ Read each file once. No redundant reads.
 </investigate_before_answering>
 ```
 
-### Instruction budget: ~150 slots total
+### The instruction budget
 
-Claude has roughly 150–200 instruction slots. The system prompt uses ~50. Every bullet point in your CLAUDE.md is one slot. A bloated CLAUDE.md doesn't just waste space — it degrades all rules simultaneously.
+Claude has roughly 150–200 instruction slots total. The system prompt uses ~50. Every bullet point in your CLAUDE.md is one slot. When the budget fills up, all rules degrade simultaneously — not just the ones at the end.
 
-Keep CLAUDE.md under 200 lines. Put the highest-ROI content first: common pitfalls that prevent specific bugs, not general guidance.
+Keep CLAUDE.md under 200 lines. Put the highest-ROI content first: specific pitfalls that prevent real bugs, not general guidance.
 
-### Hard rules belong in settings.json, not CLAUDE.md
+### Hard rules belong in settings.json
 
-CLAUDE.md is advisory — Claude can ignore it under pressure. `settings.json` deny rules are enforced regardless of context:
+CLAUDE.md is advisory. Under enough pressure, Claude can override it. `settings.json` deny rules cannot be overridden:
 
 ```json
 {
@@ -163,19 +192,21 @@ CLAUDE.md is advisory — Claude can ignore it under pressure. `settings.json` d
 }
 ```
 
-If you find yourself writing `NEVER do X` in CLAUDE.md, move it to `settings.json` deny.
-
-See [`CLAUDE.md`](CLAUDE.md) template and [`docs/verification-prompting.md`](docs/verification-prompting.md) for the full verification rule patterns.
+If you're writing `NEVER do X` in CLAUDE.md, move it to `settings.json` deny instead.
 
 ---
 
 ## Autonomy rules
 
-The rule is reversibility. Not action type, not perceived risk — reversibility.
+**The problem:**
 
-**Never ask before:** editing files, running tests, grep, installing packages, git add, git commit on a feature branch. All reversible.
+Claude asks "should I proceed?" before editing a file. Before running a test. Before grep. You spend half your time confirming things that don't need confirming. But if you say "just do everything without asking," Claude will also push to remote, publish packages, and delete things without asking.
 
-**Always ask before:** push to remote, publish packages, delete files, force operations, sending messages externally. Irreversible or visible to others.
+**The rule:** Judge by reversibility, not by action type.
+
+**Never ask before:** editing files, running tests, grep, installing packages, git add, git commit on a feature branch. All reversible — if something goes wrong, you undo it.
+
+**Always ask before:** push to remote, publish packages, delete files, force operations, sending messages externally. Irreversible, or visible to people outside this session.
 
 On a feature branch, everything up to and including commit is reversible. Push is the line.
 
@@ -183,13 +214,15 @@ On a feature branch, everything up to and including commit is reversible. Push i
 
 ## Context management
 
-Context fills fast. Performance degrades as it fills — Claude starts skipping details, forgetting earlier instructions, making obvious mistakes.
+**The problem:**
+
+A session starts sharp. An hour in, Claude is making mistakes it wouldn't have made at the start — forgetting earlier constraints, skipping details, giving vaguer answers. The context window is filling up, and performance degrades as it fills.
 
 Key practices:
 - **`/clear` between unrelated tasks** — context residue from one task degrades the next
-- **`/compact focus on X`** — compact with a hint, not blindly
+- **`/compact focus on X`** — compact with a hint, not blindly; the relevant parts are preserved
 - **Write state to `PLAN.md`** — task progress survives a `/clear`; conversation history doesn't
-- **One task per session** — treat each major task as a fresh start
+- **One major task per session** — each fresh start is full performance
 
 Full guide: [`docs/context-management.md`](docs/context-management.md)
 
@@ -232,6 +265,14 @@ Install only what I confirm. Do not install anything before asking.
 | [`templates/MEMORY_INDEX_TEMPLATE.md`](templates/MEMORY_INDEX_TEMPLATE.md) | Memory file structure and frontmatter |
 | [`CLAUDE.md`](CLAUDE.md) | CLAUDE.md template with XML verification rules |
 | [`.claude/settings.json`](.claude/settings.json) | LSP + deny rules + hook scaffold |
+
+---
+
+## Further reading
+
+- [`docs/context-management.md`](docs/context-management.md) — when to `/clear`, when to `/compact`, writing state to files
+- [`docs/verification-prompting.md`](docs/verification-prompting.md) — specific phrases that force Claude to verify before answering
+- [`docs/best-practices.md`](docs/best-practices.md) — full explanation with all research sources
 
 ---
 
