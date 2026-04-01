@@ -23,7 +23,7 @@
 就是這樣。AI coding assistant 的瓶頸不是智慧——是導航。Claude 拿到正確的資訊後推理得很好。問題是它把大部分能力浪費在「找資訊」這件事上。
 
 ```
-/generate-index          → 建立 graph（deterministic script + Claude 精修）
+/generate-graph          → 建立 graph（deterministic script + Claude 精修）
         ↓
     AI_INDEX.md          → graph 本身（adjacency list——nodes 是 domains，edges 是連接）
         ↓
@@ -32,6 +32,67 @@
 ```
 
 在這張 graph 的任何一個 node 丟入一個 bug 或 feature 需求，系統就沿著所有 edges 追蹤出受影響的位置——在你寫下第一行改動之前。
+
+---
+
+## 沒有這套系統會怎樣
+
+叫 Claude 在一個它沒看過的 repo 上「加一個 export 功能」。它內部的流程大概長這樣：
+
+```
+1. grep "export" src/
+   → 200 個結果。JS 每個檔案都有 "export"。
+   → 收窄：grep "export.*function" → 還是 50 個結果。
+
+2. 猜要開哪個檔案。server.mjs？也許。scanner.mjs？誰知道。
+   → 開了 server.mjs（600 行）→ 讀了 200 行 → 還沒找到
+   → 再讀 200 行 → 找到 /api/export endpoint
+
+3. 現在知道了入口，但不知道下游是什麼：
+   → grep "api/export" → 找到前端呼叫者
+   → grep "exportSession" → 找到一個 helper
+   → 讀 helper → 它 import 了 scanner
+   → ...每一步都是 grep → 讀 → grep → 讀
+
+4. 中途開了 history.mjs，因為名字聽起來相關。
+   → 死路。浪費 500 tokens。讀了就收不回。
+```
+
+大約 45% 的 token 花在錯的檔案上。間接依賴隨機漏掉。沒有訊號告訴它「找夠了」。
+
+**同樣的任務，有 graph 的話：**
+
+```
+1. 讀 AI_INDEX.md（400 tokens）：
+   → Server → Routes: POST /api/export ← 找到了
+   → 連接至：Scanner, Mover, Tokenizer
+
+2. /trace-impact POST /api/export：
+   → Level 1: server.mjs（handler）→ scanner.mjs（data source）
+   → Level 2: app.js（前端呼叫者）
+   → Tests: dashboard.spec.mjs
+   → 跨域：Tokenizer（可能影響 budget 計算）
+
+3. 完成。沒有回頭路。沒有猜測。
+```
+
+**~600 tokens vs ~4000 tokens。** 結果一樣，但 graph 版本不會漏掉 tokenizer 的依賴。
+
+Graph 不會限制 Claude——它仍然可以自由 grep 和探索地圖以外的地方。只是不用每次都從零開始。地鐵路線圖從來不會限制你走路的自由，它只是讓你不會搭錯車。
+
+### Graph 是優先路線，不是唯一路線
+
+一張地圖最糟糕的用法就是把它當成完整的事實。程式碼庫有 graph 抓不到的隱藏連接——plugin registries、decorator-based wiring、config-driven routing、event emitters。grep 找不到這些，static import analysis 也找不到。
+
+所以系統有內建的 fallback：如果 Claude 發現 graph 不完整的跡象，它會跳出地圖自己探索：
+
+**Fallback 觸發條件** — 在以下情況超出 graph 範圍：
+- 程式碼引用了一個 graph 上沒有列出的 module
+- 有 registry/router/config 模式但沒有對應的 `連接至` edge
+- 測試失敗指向 graph 沒有涵蓋的區域
+- Import chain 通往 graph 沒有 node 的地方
+
+這就是 **封閉式地圖**（只走這些路線，其他免談）和 **優先路線地圖**（從這裡開始，但地形不對就探索更遠）的差別。Graph 讓 Claude 免費拿到前 99%。最後 1% 靠 fallback 探索取得——這完全沒問題，因為 1% 的探索很便宜。99% 的探索才是燒掉整個 session 的元兇。
 
 ---
 
@@ -69,11 +130,11 @@ db   → src/models/
 
 每個 domain 是一個 **node**。每個 `連接至` 是一條 **edge**。這就是 `/trace-impact` 能運作的原因——它是在這個 graph 上面做 BFS 遍歷。沒有 edges，你只有一個目錄列表；有了 edges，你有一個演算法可以走的網絡。
 
-Edges 來自真正的 imports，不是猜的。`/generate-index` 掃描你的 actual import statements 來建立 graph。
+Edges 來自真正的 imports，不是猜的。`/generate-graph` 掃描你的 actual import statements 來建立 graph。
 
 一個原則：控制在 250 行以內，只寫指標。一旦開始解釋「程式碼怎麼運作」而不是「東西在哪裡」，Claude 就會從 index 推論，不讀原始碼。
 
-**保持新鮮度：** 過時的 graph 比沒有 graph 更危險——Claude 會信任它然後走上死路。結構有變就重跑 `/generate-index`。
+**保持新鮮度：** 過時的 graph 比沒有 graph 更危險——Claude 會信任它然後走上死路。結構有變就重跑 `/generate-graph`。
 
 參考：[`templates/AI_INDEX_TEMPLATE.md`](templates/AI_INDEX_TEMPLATE.md)
 
@@ -108,7 +169,7 @@ go install golang.org/x/tools/gopls@latest            # Go
 
 ## 三個技能
 
-**`/generate-index`** — 自動建立 graph
+**`/generate-graph`** — 自動建立 graph
 
 掃描你的 imports、目錄結構、exported symbols，輸出完整的 AI_INDEX.md，所有 `連接至` edges 從 actual import statements 填入。Deterministic——80% 零 token 完成。Claude 精修最後 20%（HTTP endpoints、前後端連接等 script 看不到的）。
 
@@ -126,15 +187,29 @@ go install golang.org/x/tools/gopls@latest            # Go
 
 **`/trace-impact`** — 在 graph 上做 BFS 遍歷
 
-Graph 的價值在這裡體現。不再靠記憶想有哪些 caller，`/trace-impact` 在 AI_INDEX 的 adjacency list 上做系統性的廣度優先搜尋：
+Graph 的價值在這裡體現。不再靠記憶想有哪些 caller，`/trace-impact` 在 AI_INDEX 的 adjacency list 上做系統性的廣度優先搜尋。
 
-- **Level 0**：你要改動的 node
-- **Level 1**：直接呼叫者（LSP findReferences——語義精確，不是 grep）
-- **Level 2**：呼叫那些呼叫者的地方
+白話講：你在一個站丟下一根針，然後一圈一圈向外擴散。
+
+```
+Ring 0（起點）：     auth_service.py — 你要改的東西
+Ring 1（直接）：     auth_routes.py, token_store.py, test_auth.py
+Ring 2（間接）：     app.py, middleware.py, test_auth_routes.py
+Ring 3（傳遞性）：   integration_tests/...
+```
+
+為什麼用環狀展開而不是搜整個 repo？因為最近的檔案幾乎一定最受影響。Ring 1 會壞。Ring 2 可能會壞。Ring 3 看看就好。BFS 天然給你這個結構——在深入之前先看清所有直接影響。
+
+實際的 levels：
+
+- **Level 0**：你要改動的函式
+- **Level 1 — 會壞**：直接呼叫者（LSP findReferences——語義精確，不是 grep）
+- **Level 2 — 可能壞**：呼叫那些呼叫者的地方
+- **Level 3+ — 需要 review**：傳遞性呼叫者，停止展開
 - **跨域**：沿著 `連接至` edges 跨越 module 邊界
 - **測試**：涵蓋到上述任何位置的測試
 
-廣度優先——先看清楚所有直接影響，再往下追。到達 API 邊界停止。不會漏。
+到達 API 邊界停止。不會漏。
 
 ---
 
@@ -142,7 +217,7 @@ Graph 的價值在這裡體現。不再靠記憶想有哪些 caller，`/trace-im
 
 ```
 新 repo：
-  /generate-index → 建立地圖，所有連接都在裡面
+  /generate-graph → 建立地圖，所有連接都在裡面
 
 修 bug：
   1. /trace-impact rule_evaluator.py:evaluate_rule
@@ -151,12 +226,13 @@ Graph 的價值在這裡體現。不再靠記憶想有哪些 caller，`/trace-im
      → 有根據的事實，有來源，不是猜測
   3. 進行修改
      → 你已經知道其他什麼地方需要一起更新
+  4. /sync-graph → 趁 Claude 還記得改了什麼，更新地圖
 
 加 feature：
   1. /trace-impact 對每個接觸點 → 先畫出影響範圍
   2. /investigate-module 調查你不熟悉的域
   3. 實作 feature
-  4. /generate-index 如果加了新 module 或新的跨域連接
+  4. /sync-graph → 精準更新受影響的 nodes（不用全部重建）
 ```
 
 ---

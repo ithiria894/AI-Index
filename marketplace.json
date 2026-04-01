@@ -1,0 +1,25 @@
+{
+  "name": "Codebase Navigator Marketplace",
+  "marketplaceVersion": "1",
+  "owner": {
+    "name": "ithiria894",
+    "url": "https://github.com/ithiria894"
+  },
+  "plugins": [
+    {
+      "name": "codebase-navigator",
+      "description": "Turn your repo into a graph. BFS + LSP to navigate it. generate-graph, investigate-module, trace-impact, sync-graph.",
+      "version": "0.1.0",
+      "source": {
+        "type": "git",
+        "repository": "https://github.com/ithiria894/claude-code-best-practices",
+        "ref": "main",
+        "path": "."
+      },
+      "author": {
+        "name": "ithiria894",
+        "url": "https://github.com/ithiria894"
+      }
+    }
+  ]
+}
