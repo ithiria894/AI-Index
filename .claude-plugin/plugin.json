@@ -1,6 +1,6 @@
 {
   "name": "codebase-navigator",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Not another code graph engine. A lightweight navigation workflow for AI coding agents.",
   "author": {
     "name": "ithiria894",
@@ -17,10 +17,5 @@
     "codebase",
     "ai-index"
   ],
-  "skills": [
-    "./.claude/skills/debug",
-    "./.claude/skills/generate-graph",
-    "./.claude/skills/sync-graph",
-    "./.claude/skills/new-feature"
-  ]
+  "skills": "./skills/"
 }

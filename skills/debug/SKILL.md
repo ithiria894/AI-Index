@@ -4,6 +4,8 @@ description: Debug a bug from report to fix. Locates the layer, finds root cause
 disable-model-invocation: true
 ---
 
+> **[codebase-navigator plugin — debug skill]**
+
 # Debug
 
 Find the layer where the data goes wrong, fix it there, then check if the same pattern exists elsewhere.
