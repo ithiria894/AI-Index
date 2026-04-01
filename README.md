@@ -1,5 +1,7 @@
 # Claude Code Best Practices
 
+> Not another code graph engine. A lightweight navigation workflow for AI coding agents.
+
 [繁體中文](README.zh-TW.md)
 
 You ask Claude about a function. It gives you a confident, detailed explanation. You build on it for an hour. Then you find out it was wrong.
