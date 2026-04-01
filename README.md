@@ -16,13 +16,11 @@ The fix isn't a smarter model. It's a map.
 
 ## What this plugin does
 
-Six Claude Code skills that give Claude a persistent, structured map of your codebase — and the workflows to use it effectively.
+Four Claude Code skills that give Claude a persistent, structured map of your codebase — and the workflows to use it effectively.
 
 | Skill | What it does |
 |---|---|
 | `/generate-graph` | Builds the codebase map (domain → files → relationships → docs links) |
-| `/investigate-module` | Reads before answering — no hallucination |
-| `/trace-impact` | BFS from any change, finds every caller and downstream effect |
 | `/sync-graph` | Keeps the map fresh after changes |
 | `/debug` | Locate → root cause → Codex sweep → fix |
 | `/new-feature` | Find pattern → trace impact → implement |
@@ -84,14 +82,6 @@ Claude reads this at the start of every task. It knows which files belong to whi
 
 ### The skills
 
-**`/investigate-module`** — "read before you answer"
-
-Before Claude claims anything about a module, it reads the relevant files. The skill enforces this: locate → read → answer. The output names the exact file and function read, and says "uncertain" if it hasn't checked.
-
-**`/trace-impact`** — BFS through your codebase
-
-Given any function, it walks the call graph outward: who calls this? Who calls those callers? What schemas does this touch? What routes does it affect? The graph tells it which files are in scope; BFS finds the cascade.
-
 **`/debug`** — a structured workflow, not a prompt
 
 1. Locate the entry point (graph → domain → file)
@@ -105,7 +95,6 @@ Given any function, it walks the call graph outward: who calls this? Who calls t
 1. Graph → find a similar existing feature
 2. Trace impact of that feature to understand all layers it touches
 3. Implement the new feature at every layer, following the same pattern
-4. Verify with trace-impact before shipping
 
 **`/sync-graph`** — keep the map fresh
 
@@ -242,12 +231,10 @@ Install as a Claude Code plugin — drop it into any project in one command:
 Once installed, the skills are available in any project:
 
 ```
-/codebase-navigator:generate-graph     → build the graph for your repo
-/codebase-navigator:investigate-module → verification-first code reading
-/codebase-navigator:trace-impact       → BFS to find everything a change affects
-/codebase-navigator:sync-graph         → update the graph after changes
-/codebase-navigator:debug              → locate → root cause → sweep → fix
-/codebase-navigator:new-feature        → find pattern → trace impact → implement
+/codebase-navigator:generate-graph    → build the graph
+/codebase-navigator:debug             → fix bugs
+/codebase-navigator:new-feature       → add features
+/codebase-navigator:sync-graph        → keep graph fresh
 ```
 
 Run `/codebase-navigator:generate-graph` on a new repo to get started. After that, just describe your task — Claude picks the right skill automatically.

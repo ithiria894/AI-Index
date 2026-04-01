@@ -6,316 +6,242 @@
 
 你根據它說的繼續做了一個小時。然後你發現它說的是錯的。
 
----
+又或者：你改了一個函式，測試通過，你 ship 了。三天後——四個地方都在呼叫那個函式，全部壞掉了。Claude 從來沒有提醒你。
 
-又或者這個：你改了一個函式，Claude 幫你完成了，測試通過，你 ship 了。三天後 code review，有人說「這裡有四個地方都在呼叫這個函式，全部壞掉了。」Claude 從來沒有提醒你。你也從來沒有想到要問。
+根本原因只有一個：**Claude 沒有辦法在你的程式碼庫裡導航。**
 
-這不是偶發的。每次用 Claude Code 做真實專案都會遇到。根源只有一個：**Claude 沒有辦法在你的程式碼庫裡導航。** 讀得太少就猜測；讀得太多又把 token 全燒在找路上，根本沒辦法做正事。
+它每次從零開始。它讀你給它的東西。它猜它沒有的東西。你就得到幻覺、漏掉的影響範圍、盲點裡引入的 bug。
 
-以下就是解決方法。
-
----
-
-## 核心概念
-
-**將整個 repo 變成一個 graph，用 BFS + LSP 做搜尋和遍歷。**
-
-就是這樣。AI coding assistant 的瓶頸不是智慧——是導航。Claude 拿到正確的資訊後推理得很好。問題是它把大部分能力浪費在「找資訊」這件事上。
-
-```
-/generate-graph          → 建立 graph（deterministic script + Claude 精修）
-        ↓
-    AI_INDEX.md          → graph 本身（adjacency list——nodes 是 domains，edges 是連接）
-        ↓
-/investigate-module      → 讀 graph 上的某個 node（有根據，有來源）
-/trace-impact            → 沿著 edges 做 BFS（找出所有受影響的位置）
-```
-
-在這張 graph 的任何一個 node 丟入一個 bug 或 feature 需求，系統就沿著所有 edges 追蹤出受影響的位置——在你寫下第一行改動之前。
+解決方案不是更聰明的模型。是一張地圖。
 
 ---
 
-## 沒有這套系統會怎樣
+## 這個 plugin 做什麼
 
-叫 Claude 在一個它沒看過的 repo 上「加一個 export 功能」。它內部的流程大概長這樣：
+四個 Claude Code 技能，給 Claude 一張持久、結構化的程式碼庫地圖——加上有效使用它的工作流程。
 
-```
-1. grep "export" src/
-   → 200 個結果。JS 每個檔案都有 "export"。
-   → 收窄：grep "export.*function" → 還是 50 個結果。
+| 技能 | 功能 |
+|---|---|
+| `/generate-graph` | 建立程式碼庫地圖（domain → 檔案 → 關係 → 文件連結） |
+| `/sync-graph` | 改動後保持地圖更新 |
+| `/debug` | 定位 → 找根因 → Codex 掃描 → 修復 |
+| `/new-feature` | 找現有模式 → 追蹤影響 → 實作 |
 
-2. 猜要開哪個檔案。server.mjs？也許。scanner.mjs？誰知道。
-   → 開了 server.mjs（600 行）→ 讀了 200 行 → 還沒找到
-   → 再讀 200 行 → 找到 /api/export endpoint
-
-3. 現在知道了入口，但不知道下游是什麼：
-   → grep "api/export" → 找到前端呼叫者
-   → grep "exportSession" → 找到一個 helper
-   → 讀 helper → 它 import 了 scanner
-   → ...每一步都是 grep → 讀 → grep → 讀
-
-4. 中途開了 history.mjs，因為名字聽起來相關。
-   → 死路。浪費 500 tokens。讀了就收不回。
-```
-
-大約 45% 的 token 花在錯的檔案上。間接依賴隨機漏掉。沒有訊號告訴它「找夠了」。
-
-**同樣的任務，有 graph 的話：**
-
-```
-1. 讀 AI_INDEX.md（400 tokens）：
-   → Server → Routes: POST /api/export ← 找到了
-   → 連接至：Scanner, Mover, Tokenizer
-
-2. /trace-impact POST /api/export：
-   → Level 1: server.mjs（handler）→ scanner.mjs（data source）
-   → Level 2: app.js（前端呼叫者）
-   → Tests: dashboard.spec.mjs
-   → 跨域：Tokenizer（可能影響 budget 計算）
-
-3. 完成。沒有回頭路。沒有猜測。
-```
-
-**~600 tokens vs ~4000 tokens。** 結果一樣，但 graph 版本不會漏掉 tokenizer 的依賴。
-
-Graph 不會限制 Claude——它仍然可以自由 grep 和探索地圖以外的地方。只是不用每次都從零開始。地鐵路線圖從來不會限制你走路的自由，它只是讓你不會搭錯車。
-
-### Graph 是優先路線，不是唯一路線
-
-一張地圖最糟糕的用法就是把它當成完整的事實。程式碼庫有 graph 抓不到的隱藏連接——plugin registries、decorator-based wiring、config-driven routing、event emitters。grep 找不到這些，static import analysis 也找不到。
-
-所以系統有內建的 fallback：如果 Claude 發現 graph 不完整的跡象，它會跳出地圖自己探索：
-
-**Fallback 觸發條件** — 在以下情況超出 graph 範圍：
-- 程式碼引用了一個 graph 上沒有列出的 module
-- 有 registry/router/config 模式但沒有對應的 `連接至` edge
-- 測試失敗指向 graph 沒有涵蓋的區域
-- Import chain 通往 graph 沒有 node 的地方
-
-這就是 **封閉式地圖**（只走這些路線，其他免談）和 **優先路線地圖**（從這裡開始，但地形不對就探索更遠）的差別。Graph 讓 Claude 免費拿到前 99%。最後 1% 靠 fallback 探索取得——這完全沒問題，因為 1% 的探索很便宜。99% 的探索才是燒掉整個 session 的元兇。
+地圖（AI_INDEX.md）存在你的 repo 裡。Claude 在每次任務開始時讀取它。它知道哪些檔案屬於哪個 domain、現有的模式是什麼、文件在哪裡。
 
 ---
 
-## AI_INDEX.md — 不是檔案列表，是 graph
+## 你的工作流程（人的部分）
 
-市面上有幾十個 AI_INDEX template。大部分長這樣：
+你不需要理解內部機制。你不需要選擇方法。Plugin 會自動處理。以下是你的工作日實際上的樣子：
 
+**第一次用這個 repo：**
+```plaintext
+/generate-graph
 ```
-auth → src/auth/
-api  → src/api/
-db   → src/models/
+完成。30 秒。你現在有一張 graph 了。
+
+**有人回報了一個 bug：**
+```plaintext
+你：「修這個 bug：[貼上 Slack 訊息 / 錯誤 / 截圖]」
 ```
+Claude 自動讀取 graph、找到對應的 domain、讀取文件、追蹤程式碼、找出根因、提出修復方案。你 review 然後 merge。
 
-這是一個 flat file list。Claude 知道去哪裡找東西，但它完全不知道改了 `auth` 會影響 `api`。沒有任何結構把它們連起來。這是一本電話簿，不是一張地圖。
-
-我們的 AI_INDEX 是一個 **graph data structure**——具體來說是 adjacency list（鄰接表）：
-
-```markdown
-### Auth
-- Entry: src/auth/middleware.py
-- Search: verifyToken, AuthError
-- Tests: tests/test_auth.py
-- 連接至：
-  - API layer — via requireAuth() in src/api/routes.py
-  - DB layer — via UserModel.findById() in src/models/user.py
-
-### API layer
-- Entry: src/api/routes.py
-- Search: router, handleRequest
-- Tests: tests/test_routes.py
-- 連接至：
-  - Auth — via requireAuth middleware
-  - Rule evaluation — via POST /api/evaluate
+**有人要求一個新功能：**
+```plaintext
+你：「加這個功能：[貼上需求]」
 ```
+Claude 找一個類似的現有功能，跨所有層複製模式，然後實作。你 review 然後 merge。
 
-每個 domain 是一個 **node**。每個 `連接至` 是一條 **edge**。這就是 `/trace-impact` 能運作的原因——它是在這個 graph 上面做 BFS 遍歷。沒有 edges，你只有一個目錄列表；有了 edges，你有一個演算法可以走的網絡。
+**你懷疑同樣的 bug 可能有更多地方：**
+```plaintext
+你：「用 Codex 在這個檔案裡掃描同樣的模式」
+```
+Codex 用 ~$0.02 做徹底的暴力掃描，找出每一個 instance。Claude 全部修掉。
 
-Edges 來自真正的 imports，不是猜的。`/generate-graph` 掃描你的 actual import statements 來建立 graph。
+**就是這樣。** 你貼上問題，Claude 跑完工作流程，你 review 輸出。Graph、文件、BFS 遍歷、模式掃描——全部在背後自動進行。你不需要手動呼叫技能，不需要選擇方法。你只需要說你要什麼。
 
-一個原則：控制在 250 行以內，只寫指標。一旦開始解釋「程式碼怎麼運作」而不是「東西在哪裡」，Claude 就會從 index 推論，不讀原始碼。
-
-**保持新鮮度：** 過時的 graph 比沒有 graph 更危險——Claude 會信任它然後走上死路。結構有變就重跑 `/generate-graph`。
-
-參考：[`templates/AI_INDEX_TEMPLATE.md`](templates/AI_INDEX_TEMPLATE.md)
+你唯一需要記住的：
+- 第一次 → `/generate-graph`
+- 之後 → 直接貼上任務讓 Claude 去做
 
 ---
 
-## LSP — graph 的搜尋引擎
+## 它是怎麼運作的
 
-BFS 在每個 node 需要精確的 lookup。grep 做不到——它是字串比對，`authenticate` 會 match 到注解、變數名、不相關的檔案。40 個結果，15 個雜訊，token 預算燒掉一半。
+### 地圖
 
-LSP 直接問語言的型別檢查器。語義比對，不是字串。一樣的查詢，6 個精確結果。
+`/generate-graph` 產生 `AI_INDEX.md`——一個結構化的路由清單：
 
-| | grep | LSP findReferences |
-|---|---|---|
-| 速度 | 基準 | 快 900 倍 |
-| Token 消耗 | 高 | 低 20 倍 |
-| 準確度 | 字串比對，有誤報 | 語義比對，零誤報 |
-
-在 `.claude/settings.json` 啟用：
-```json
-{ "env": { "ENABLE_LSP_TOOL": "1" } }
+```yaml
+## Domain: auth
+Files: src/auth/login.py, src/auth/tokens.py, src/auth/middleware.py
+Patterns: JWT tokens, session handling
+Docs: docs/auth/overview.md
 ```
 
-**VS Code**：language server 已經在跑——開 flag 就好。**Terminal**：要先裝 language server：
+Claude 在每次任務開始時讀取它。它知道哪些檔案屬於哪個 domain、現有的模式是什麼、文件在哪裡。沒有幻覺，沒有猜測。
 
-```bash
-pip install python-lsp-server                         # Python
-npm install -g typescript-language-server typescript  # TypeScript
-go install golang.org/x/tools/gopls@latest            # Go
-```
+### 各技能說明
+
+**`/debug`** — 結構化工作流程，不是一個 prompt
+
+1. 定位入口點（graph → domain → 檔案）
+2. 讀取相關程式碼
+3. 找出根因
+4. Codex 掃描：對所有檔案做徹底掃描找同樣模式（~$0.02）
+5. 修復所有 instance
+
+**`/new-feature`** — 找現有模式，複製它
+
+1. Graph → 找一個類似的現有功能
+2. 追蹤那個功能的影響，了解它碰到了哪些層
+3. 按照同樣模式在每一層實作新功能
+
+**`/sync-graph`** — 保持地圖更新
+
+重大改動後，`/sync-graph` 更新 AI_INDEX.md。把新檔案加到正確的 domain、更新模式列表、保持文件連結有效。
 
 ---
 
-## 三個技能
+## 它真的有效嗎？
 
-**`/generate-graph`** — 自動建立 graph
+九個 benchmark 任務，跨越不同大小的 repo（小型 hobby 專案到 77K 檔案的 monorepo），比較對象：有 graph 的導航 vs. 沒有地圖 vs. 專案文件 vs. fullstack-debug vs. Aider 的 PageRank 地圖。
 
-掃描你的 imports、目錄結構、exported symbols，輸出完整的 AI_INDEX.md，所有 `連接至` edges 從 actual import statements 填入。Deterministic——80% 零 token 完成。Claude 精修最後 20%（HTTP endpoints、前後端連接等 script 看不到的）。
+### 總結：各方法在什麼情況下有效？
 
-新 repo 跑一次。結構變了再跑。
+| 任務類型 | Token 節省（graph vs 無地圖） | 品質差異 |
+|---|:---:|---|
+| Bug fix（入口明確） | ~0% | Graph 找到其他方法漏掉的**連鎖影響** |
+| Bug fix（UI 流程） | ~3% | 相當 |
+| 新功能規劃 | **23%** | Graph 知道哪些檔案可以跳過 |
+| 理解一個流程 | **17%** | Graph 直接提供入口點 |
+| 模式稽核（大型 repo） | **42%** | Graph + Codex = 100% 覆蓋率 |
+| 跨 repo 調查 | **33%** | Graph 指向正確的 repo/domain |
+| 功能調查（大型 repo） | 不定 | **Aider PageRank 失敗；graph + docs 勝出** |
 
----
+### Test 1 — Bug fix：缺少 rate limit（小型 repo）
 
-**`/investigate-module`** — verification-first prompting
+| 指標 | A（graph） | B（無地圖） |
+|------|:---:|:---:|
+| Tokens | 14K | 14K |
+| Tool calls | 10 | 12 |
+| 找到根因？ | ✅ | ✅ |
+| 找到連鎖影響？ | ✅ | ❌ |
 
-核心機制：**強制 Claude 在做出任何判斷之前，先說明它讀了哪個檔案的哪個函式。** 這消除了「自信地瞎猜」的中間地帶——Claude 要嘛讀了 source（準確），要嘛說「不確定」（你知道要深入查）。
+**Token 一樣，但 B 漏掉了 restore/undo 路徑。** 它修了主要的 bug，卻留下一個次要的程式碼路徑壞掉。A 找到了，因為 trace-impact 走完了完整的 call graph。
 
-讀 AI_INDEX 找到對應的 node → grep/LSP 定位確切的符號 → 只讀相關段落 → 回報讀了什麼讓你驗證。
+### Test 2 — Bug fix：UI 刷新問題（小型 repo）
 
----
+| 指標 | A（graph） | B（無地圖） |
+|------|:---:|:---:|
+| Tokens | 5K | 5.1K |
+| Tool calls | 4 | 5 |
+| 找到根因？ | ✅ | ✅ |
 
-**`/trace-impact`** — 在 graph 上做 BFS 遍歷
+簡單的 UI bug——效能相當。入口點明顯時 graph 幫助不大。
 
-Graph 的價值在這裡體現。不再靠記憶想有哪些 caller，`/trace-impact` 在 AI_INDEX 的 adjacency list 上做系統性的廣度優先搜尋。
+### Test 3 — 新功能規劃（小型 repo）
 
-白話講：你在一個站丟下一根針，然後一圈一圈向外擴散。
+| 指標 | A（graph） | B（無地圖） |
+|------|:---:|:---:|
+| Tokens | 11K | **14K** |
+| Tool calls | 10 | 14 |
+| 正確識別影響範圍？ | ✅ | ✅ |
 
-```
-Ring 0（起點）：     auth_service.py — 你要改的東西
-Ring 1（直接）：     auth_routes.py, token_store.py, test_auth.py
-Ring 2（間接）：     app.py, middleware.py, test_auth_routes.py
-Ring 3（傳遞性）：   integration_tests/...
-```
+**少 23% token。** Graph 告訴 Claude 哪些檔案可以跳過。B 探索了結果發現不相關的檔案。
 
-為什麼用環狀展開而不是搜整個 repo？因為最近的檔案幾乎一定最受影響。Ring 1 會壞。Ring 2 可能會壞。Ring 3 看看就好。BFS 天然給你這個結構——在深入之前先看清所有直接影響。
+### Test 4 — 理解一個流程（小型 repo）
 
-實際的 levels：
+| 指標 | A（graph） | B（無地圖） |
+|------|:---:|:---:|
+| Tokens | 5K | **6K** |
+| Tool calls | 5 | 8 |
+| 解釋準確？ | ✅ | ✅ |
 
-- **Level 0**：你要改動的函式
-- **Level 1 — 會壞**：直接呼叫者（LSP findReferences——語義精確，不是 grep）
-- **Level 2 — 可能壞**：呼叫那些呼叫者的地方
-- **Level 3+ — 需要 review**：傳遞性呼叫者，停止展開
-- **跨域**：沿著 `連接至` edges 跨越 module 邊界
-- **測試**：涵蓋到上述任何位置的測試
+**少 17% token，少 37% tool calls。** Graph 直接提供入口點。
 
-到達 API 邊界停止。不會漏。
+### Test 5 — 模式稽核：找出所有同樣 bug 模式的 instance（小型 repo）
 
----
+| 指標 | A（graph） | B（無地圖） | A + Codex 掃描 |
+|------|:---:|:---:|:---:|
+| Tokens | 16K | 22K | 16K + $0.02 |
+| Tool calls | 12 | 18 | 12 + 掃描 |
+| 覆蓋率 | ~80% | ~60% | **100%** |
 
-### 三者如何協作
+**兩個 agent 單獨都達不到 100%。** Graph + Codex 掃描：graph 縮小搜尋範圍，Codex 做徹底的暴力掃描。用 ~$0.02 達到完整覆蓋。
 
-```
-新 repo：
-  /generate-graph → 建立地圖，所有連接都在裡面
+### Test 6 — Bug fix：缺少 feature flag（大型 repo，77K 檔案）
 
-修 bug：
-  1. /trace-impact rule_evaluator.py:evaluate_rule
-     → 動手前先知道完整的影響範圍
-  2. /investigate-module 查詢需要理解的部分
-     → 有根據的事實，有來源，不是猜測
-  3. 進行修改
-     → 你已經知道其他什麼地方需要一起更新
-  4. /sync-graph → 趁 Claude 還記得改了什麼，更新地圖
+| 指標 | A（graph） | C（無地圖） |
+|------|:---:|:---:|
+| Tokens | 48K | **72K** |
+| Tool calls | 14 | 26 |
+| 找到根因？ | ✅ | ✅ |
 
-加 feature：
-  1. /trace-impact 對每個接觸點 → 先畫出影響範圍
-  2. /investigate-module 調查你不熟悉的域
-  3. 實作 feature
-  4. /sync-graph → 精準更新受影響的 nodes（不用全部重建）
-```
+**在 77K 檔案的 repo 上少 33% token。** Graph 把搜尋範圍從整個 monorepo 縮小到單一 domain。C 廣泛探索後才找到正確的區域。
 
----
+### Test 7 — 跨 repo 調查：前端呼叫後端（大型 repo）
 
-## CLAUDE.md — 用 XML 標籤，不是 markdown
+| 指標 | A（graph） | C（無地圖） |
+|------|:---:|:---:|
+| Tokens | 55K | 82K |
+| Tool calls | 18 | 33 |
+| 找到後端 endpoint？ | ✅ | ✅ |
+| 找到接線缺口？ | ✅ | ❌ |
 
-CLAUDE.md 裡的規則在 context 壓力下會被降優先——Anthropic 會包一層 *「這段 context 可能與當前任務相關，也可能無關」*。XML 標籤的穩定性高得多：
+C 找到了後端 endpoint。A 也找到了——加上發現前端元件呼叫了 `get_tool_input_text()`。基礎設施已就緒，呼叫者還沒接上。**Graph 比無地圖省了 33% token。**
 
-```xml
-<investigate_before_answering>
-不要對你還沒有開啟過的程式碼做出推測。
-先讀 AI_INDEX.md——僅作導航用途，不是事實來源。
-在讀取任何檔案前，先用 grep/LSP 定位確切的位置。
-只讀相關段落，使用行數範圍，不是整個檔案。
-說明你讀了什麼：「根據 src/foo.py:bar()...」
-不確定時：說「不確定」，不要猜測。
-每個檔案只讀一次，不重複讀取。
-</investigate_before_answering>
-```
+### Test 8 — 新功能調查：session context tool calls（大型 repo，4 種方法）
 
-**指令配額：** ~150–200 個空間。系統 prompt 佔 ~50。CLAUDE.md 每個 bullet 佔一個。超額 = 所有規則同時降質。控制在 200 行以內。
+前端開發者問：我們可以把 tool calls、in/out flags、tool names 加到 session context API 嗎？
 
-**硬性規則 → `settings.json` deny**，不是 CLAUDE.md。CLAUDE.md 可以被忽略，deny rules 不行：
+| 指標 | A（graph） | C（無地圖） | D（專案文件） | E（fullstack-debug） | Aider map |
+|------|:---:|:---:|:---:|:---:|:---:|
+| Tokens | 61K | 47K | 64K | 49K | N/A |
+| Tool calls | **17** | 30 | 35 | 32 | N/A |
+| 找到 endpoint？ | ✅ | ✅ | ✅ | ✅ | **❌** |
+| 找到現有 helpers？ | ✅ | ✅ | ✅ | ✅ | — |
+| 額外洞察 | — | — | ⚠️ ingestion 注意事項 | — | — |
 
-```json
-{
-  "permissions": {
-    "deny": [
-      "Bash(git push --force*)",
-      "Bash(rm -rf*)"
-    ]
-  }
-}
-```
+**Aider 的 PageRank 地圖完全失敗**——560 行的地圖，但 session context endpoint 不夠「重要」沒有被納入。Agent D（專案文件）找到了一個其他方法都漏掉的資料儲存注意事項。Agent A 用了最少的 tool calls（17 vs 30-35）。
 
----
+### 關鍵發現
 
-## 自主性——可逆性，不是動作類型
+**Graph 最大的價值不是省 token——是防止漏掉影響範圍。** 在 10 個檔案的 repo 上，token 節省是 17-23%。在 77K 檔案的 repo 上，跳到 33-42%。但找到 Test 1 的連鎖 bug（只有 graph 版本抓到的 restore/undo 路徑）——那是質的差異，不是量的差異。
 
-**不需要問：** 編輯檔案、跑測試、grep、git add、feature branch 上 git commit——全部可逆。
-**必須問：** 推送到遠端、發布、刪除檔案、強制操作——不可逆或對外可見。
+**Aider 的 PageRank 方法在特定功能調查上失敗。** 它優化「全域重要的」函式，而不是「和你的任務相關的」函式。在 77K 檔案的 repo 上，session context endpoint 根本沒有出現在 Aider 的 560 行地圖裡。
 
-Push 是那條線。
+**任何單一方法都無法在模式稽核上達到 100% 覆蓋率。** 最佳工作流程是混合式：graph 縮小搜尋範圍，然後 Codex 做 ~$0.02 的徹底暴力掃描。
 
----
-
-## Context 管理
-
-- **`/clear` 在不相關的任務之間** — context 殘留會污染下一個任務
-- **`/compact focus on X`** — 帶方向的壓縮，不是盲目壓
-- **把進度寫到 `PLAN.md`** — 能在 `/clear` 後繼續；對話記錄不行
-- **一個 session 專注一個主要任務** — 每次重新開始都是最佳狀態
-
-詳細說明：[`docs/context-management.md`](docs/context-management.md)
+**專案文件有獨特的價值**——程式碼本身無法告訴你的 domain-specific 注意事項和業務邏輯。Graph 的 `Docs:` 欄位自動連結到這些 per-domain 文件。
 
 ---
 
 ## 快速上手
 
-將以下 prompt 複製到你的 Claude Code 中：
+以 Claude Code plugin 安裝——一個指令就能加到任何專案：
+
+```bash
+# 加入 marketplace
+/plugin add-marketplace https://github.com/ithiria894/claude-code-best-practices
+
+# 安裝
+/plugin install codebase-navigator
+```
+
+安裝後，技能在任何專案都可以使用：
 
 ```
-請讀取 https://github.com/ithiria894/claude-code-best-practices 中的這些檔案：
-- README.md
-- .claude/skills/investigate-module/SKILL.md
-- .claude/skills/trace-impact/SKILL.md
-- templates/AI_INDEX_TEMPLATE.md
-- CLAUDE.md
-
-讀完後，用繁體中文向我解釋每個部分——從它解決的問題開始說起：
-沒有它時會發生什麼讓人頭痛的事、為什麼會這樣，以及這個方案如何解決它。
-語言要口語化、具體，讓我能說「這個問題我也有」再聽解法。
-
-請解釋以下五項：
-1. /investigate-module — Claude 在沒有讀程式碼的情況下回答問題會出什麼問題
-2. /trace-impact — 改了一個地方卻不知道什麼東西會跟著壞掉的問題
-3. AI_INDEX.md — 為什麼 Claude 在不熟悉的程式碼庫上會迷失方向或變慢
-4. CLAUDE.md 的 <investigate_before_answering> 規則 — 為什麼告訴 Claude「小心一點」沒用
-5. LSP — 為什麼用 grep 找程式碼會浪費 token 還容易出錯
-
-解釋完五項後，詢問我要安裝哪些。
-在我確認前，不要安裝任何東西。
+/codebase-navigator:generate-graph    → 建立 graph
+/codebase-navigator:debug             → 修 bug
+/codebase-navigator:new-feature       → 新增功能
+/codebase-navigator:sync-graph        → 保持 graph 更新
 ```
+
+在新 repo 上跑 `/codebase-navigator:generate-graph` 開始使用。之後只需要描述你的任務——Claude 會自動選擇正確的技能。
+
+**手動安裝**（如果你偏好複製檔案）：參考 [手動安裝指南](docs/manual-setup.md)。
 
 ---
 
@@ -323,19 +249,10 @@ Push 是那條線。
 
 | 檔案 | 說明 |
 |---|---|
-| [`scripts/generate-ai-index.mjs`](scripts/generate-ai-index.mjs) | Deterministic AI_INDEX 生成器——掃描 imports，輸出 routing manifest |
-| [`templates/AI_INDEX_TEMPLATE.md`](templates/AI_INDEX_TEMPLATE.md) | 完整的 AI_INDEX 格式，含 Connects to |
+| [`scripts/generate-ai-index.mjs`](scripts/generate-ai-index.mjs) | Deterministic AI_INDEX 生成器——掃描 imports，輸出路由清單 |
+| [`templates/AI_INDEX_TEMPLATE.md`](templates/AI_INDEX_TEMPLATE.md) | 完整的 AI_INDEX 格式，含 Connects to 和 Docs 欄位 |
 | [`templates/MEMORY_INDEX_TEMPLATE.md`](templates/MEMORY_INDEX_TEMPLATE.md) | Memory 檔案結構與 frontmatter |
-| [`CLAUDE.md`](CLAUDE.md) | 含 XML 驗證規則的 CLAUDE.md 範本 |
 | [`.claude/settings.json`](.claude/settings.json) | LSP + deny rules + hook 架構 |
-
----
-
-## 延伸閱讀
-
-- [`docs/context-management.md`](docs/context-management.md) — 何時 `/clear`、何時 `/compact`、如何把狀態寫到檔案
-- [`docs/verification-prompting.md`](docs/verification-prompting.md) — 強制 Claude 驗證後再回答的具體措辭
-- [`docs/best-practices.md`](docs/best-practices.md) — 完整說明與所有研究來源
 
 ---
 

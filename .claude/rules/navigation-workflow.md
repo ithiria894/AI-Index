@@ -1,3 +1,29 @@
+## Settings
+
+### Codex pattern sweep
+
+When Claude finds a bug, the same pattern often exists in other places. The Codex sweep step hands off to Codex CLI to scan the entire file/directory for every instance.
+
+**Enabled (default):**
+- After finding root cause, Codex scans for the same pattern everywhere
+- ~$0.02 per scan (Codex uses cheaper models for brute-force work)
+- In our benchmarks, a 3-line bug fix actually had 16 affected locations — Claude found 5, Codex found all 16
+- You fix once, ship clean. No "oh wait there's another one" in code review
+
+**Disabled:**
+- Claude still checks nearby code for similar patterns, but won't do an exhaustive scan
+- Faster, zero extra cost
+- Risk: you fix the reported bug but miss 2-3 identical bugs in the same file that surface later
+
+Most of the time, leaving it on is worth it — $0.02 to guarantee you didn't miss anything.
+
+To disable:
+```json
+{ "env": { "CODEX_SWEEP": "false" } }
+```
+
+---
+
 ## When to use the navigation skills
 
 These rules apply whenever this repo's skills are installed.
