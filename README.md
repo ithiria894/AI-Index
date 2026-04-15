@@ -1,266 +1,396 @@
-# Claude Code Best Practices
+# AI Index
 
-> Not another code graph engine. A lightweight navigation workflow for AI coding agents.
+> Navigation infrastructure for coding agents.
 
 [繁體中文](README.zh-TW.md)
 
-You ask Claude about a function. It gives you a confident, detailed explanation. You build on it for an hour. Then you find out it was wrong.
+Most AI coding failures are not reasoning failures.
 
-Or: you change a function, tests pass, you ship. Three days later — four other places called that function, all broken. Claude never mentioned them.
+They are navigation failures.
 
-Same root cause: **Claude doesn't have a way to navigate your codebase.**
+The model can read code, but it still has to figure out:
 
-It starts from scratch every time. It reads what you give it. It guesses what it doesn't have. You get hallucinations, missed impact, bugs introduced in blind spots.
+- where to start
+- which files belong to the same change surface
+- which conventions do not show up in imports
+- what else must change before the edit is actually complete
 
-The fix isn't a smarter model. It's a map.
+That is the problem this repo is trying to solve.
 
----
+## Thesis
 
-## What this plugin does
+Traditional documentation is optimized for humans.
 
-Four Claude Code skills that give Claude a persistent, structured map of your codebase — and the workflows to use it effectively.
+An AI coding agent does not need a prose explanation of what every feature does. It can read the code. What it usually lacks is a reliable map:
 
-| Skill | What it does |
-|---|---|
-| `/generate-graph` | Builds the codebase map (domain → files → relationships → docs links) |
-| `/sync-graph` | Keeps the map fresh after changes |
-| `/debug` | Locate → root cause → Codex sweep → fix |
-| `/new-feature` | Find pattern → trace impact → implement |
+- which domain file to open first
+- which layers belong together
+- which configs, jobs, tests, schemas, or migrations are easy to forget
+- which repo-specific rules change the blast radius of an edit
 
-The map (AI_INDEX.md) lives in your repo. Claude reads it at the start of every task. It knows which files belong to which domain, which patterns exist, where the docs are.
+An `AI Index` is that map.
 
----
+It is not a generated symbol dump.
+It is not a call graph.
+It is not a human knowledge base.
 
-## Your workflow (the human part)
+It is an AI-maintained repository graph for change-complete navigation.
 
-You don't need to understand the internals. You don't choose between approaches. The plugin handles that automatically. Here's what your day actually looks like:
+## What This Repo Contains
 
-**First time on a repo:**
-```plaintext
-/generate-graph
+This repo packages the methodology in a Claude Code-friendly shape:
+
+- an AI Index spec
+- a minimal template
+- skills for `use`, `generate`, and `sync`
+
+Main files:
+
+- [`docs/AI_INDEX_SPEC.md`](docs/AI_INDEX_SPEC.md)
+- [`templates/AI_INDEX_TEMPLATE.md`](templates/AI_INDEX_TEMPLATE.md)
+- [`skills/ai-index/SKILL.md`](skills/ai-index/SKILL.md)
+- [`skills/use-ai-index/SKILL.md`](skills/use-ai-index/SKILL.md)
+- [`skills/generate-graph/SKILL.md`](skills/generate-graph/SKILL.md)
+- [`skills/sync-graph/SKILL.md`](skills/sync-graph/SKILL.md)
+
+## The Core Idea
+
+The AI Index sits between raw code search and traditional documentation.
+
+Raw code search is strong at local truth:
+
+- what this file does
+- what this function calls
+- where this symbol is defined
+
+But raw search is weak at repo-level completeness:
+
+- which sibling layers must also be inspected
+- which ownership boundary a task belongs to
+- which conventions are real even when the imports do not show them
+
+Traditional docs or knowledge graphs are strong at narrative context:
+
+- what the subsystem is for
+- how people talk about it
+- what the high-level flow looks like
+
+But they are usually weak at edit completeness:
+
+- they often do not cover enough live code surface
+- they go stale
+- they are expensive to maintain
+- they still leave the agent to rediscover the real touch points
+
+The AI Index is designed for the middle:
+
+- more structure than prose docs
+- more repo-awareness than a flat index
+- less duplication than a human documentation system
+
+## Data Structure: Tree vs Graph
+
+This is the most important design difference.
+
+### Traditional Knowledge Graph / Documentation Tree
+
+Typical shape:
+
+```text
+index
+  -> feature doc
+    -> deeper doc
+      -> code pointers
 ```
-Done. Takes 30 seconds. You now have a graph.
 
-**Someone reports a bug:**
-```plaintext
-You: "fix this bug: [paste the Slack message / error / screenshot]"
-```
-Claude automatically reads the graph, finds the right domain, reads the docs, traces the code, finds root cause, and proposes a fix. You review and merge.
+This is still mostly a document tree.
 
-**Someone requests a feature:**
-```plaintext
-You: "add this feature: [paste the requirement]"
-```
-Claude finds a similar existing feature, copies the pattern across all layers, and implements it. You review and merge.
+It helps answer:
 
-**You suspect there might be more instances of the same bug:**
-```plaintext
-You: "use Codex to scan for the same pattern in this file"
-```
-Codex does an exhaustive brute-force scan for ~$0.02 and finds every instance. Claude fixes them all.
+- "What is this feature?"
+- "How does this system work?"
+- "What should a human read next?"
 
-**That's it.** You paste the problem, Claude follows the workflow, you review the output. The graph, the docs, the BFS traversal, the pattern sweep — all of that happens behind the scenes. You don't invoke skills manually. You don't choose an approach. You just say what you need.
+It is good for onboarding and architecture tours.
 
-The only thing you need to remember:
-- First time → `/generate-graph`
-- After that → just paste your task and let Claude work
+### AI Index Graph
 
----
+Typical shape:
 
-## How it works
-
-### The map
-
-`/generate-graph` produces an `AI_INDEX.md` — a structured routing manifest:
-
-```yaml
-## Domain: auth
-Files: src/auth/login.py, src/auth/tokens.py, src/auth/middleware.py
-Patterns: JWT tokens, session handling
-Docs: docs/auth/overview.md
+```text
+AI_INDEX.md
+  -> domain file
+    -> change surfaces
+    -> must_check rules
+    -> critical nodes
+    -> verified edges
 ```
 
-Claude reads this at the start of every task. It knows which files belong to which domain, which patterns exist, where the docs are. No hallucination. No guessing.
+This is a traversal graph.
 
-### The skills
+It helps answer:
 
-**`/debug`** — a structured workflow, not a prompt
+- "Which domain should I open first?"
+- "If I change this route or service, what else should I inspect?"
+- "Which files belong to the same change surface?"
 
-1. Locate the entry point (graph → domain → file)
-2. Read the relevant code
-3. Identify root cause
-4. Codex sweep: exhaustive scan for the same pattern across all files (~$0.02)
-5. Fix all instances
+It is good for implementation, debugging, impact analysis, and keeping edits complete.
 
-**`/new-feature`** — find the existing pattern, copy it
+## The Methodology
 
-1. Graph → find a similar existing feature
-2. Trace impact of that feature to understand all layers it touches
-3. Implement the new feature at every layer, following the same pattern
+The workflow has four parts.
 
-**`/sync-graph`** — keep the map fresh
+### 1. Use
 
-After significant changes, `/sync-graph` updates AI_INDEX.md. Adds new files to the right domains, updates pattern lists, keeps docs links current.
+When a repo already has an AI Index:
 
----
+- read `AI_INDEX.md`
+- pick the smallest relevant set of domains
+- open only those domain files
+- inspect the listed change surfaces
+- follow `must_check` before editing
 
-## Does it actually work?
+This prevents the agent from starting blind and wandering through the repo.
 
-Nine benchmark tasks across repos of different sizes (small hobby project to 77K-file monorepo), comparing: graph-guided navigation vs. no map vs. project docs vs. fullstack-debug vs. Aider's PageRank map.
+### 2. Generate
 
-### Summary: when does each approach help?
+When a repo does not have an AI Index yet:
 
-| Task type | Token savings (graph vs no map) | Quality difference |
-|---|:---:|---|
-| Bug fix (clear entry point) | ~0% | Graph finds **cascade impact** others miss |
-| Bug fix (UI flow) | ~3% | Comparable |
-| New feature planning | **23%** | Graph knows which files to skip |
-| Understanding a flow | **17%** | Graph provides entry points directly |
-| Pattern audit (large repo) | **42%** | Graph + Codex = 100% coverage |
-| Cross-repo investigation | **33%** | Graph points to the right repo/domain |
-| Feature investigation (large repo) | Varies | **Aider PageRank fails; graph + docs wins** |
+- inspect repo structure
+- identify real domains
+- map the major change surfaces for each domain
+- record only high-value nodes and verified edges
+- keep human prose out
 
-### Test 1 — Bug fix: missing rate limit (small repo)
+The point is not to inventory every function.
 
-| Metric | A (graph) | B (no map) |
-|------|:---:|:---:|
-| Tokens | 14K | 14K |
-| Tool calls | 10 | 12 |
-| Found root cause? | ✅ | ✅ |
-| Found cascade impact? | ✅ | ❌ |
+The point is to create a graph that makes future changes more complete.
 
-**Same tokens, but B missed the restore/undo path.** It fixed the main bug and left a secondary code path broken. A found it because trace-impact walked the full call graph.
+### 3. Sync
 
-### Test 2 — Bug fix: UI refresh issue (small repo)
+After meaningful edits:
 
-| Metric | A (graph) | B (no map) |
-|------|:---:|:---:|
-| Tokens | 5K | 5.1K |
-| Tool calls | 4 | 5 |
-| Found root cause? | ✅ | ✅ |
+- look at the changed files
+- map them back to affected domains
+- update the domain file
+- update root rules only if the change affects repo-wide behavior
+- re-check paths and links
 
-Simple UI bug — comparable performance. Graph doesn't help much when the entry point is obvious.
+This keeps the graph useful without rebuilding everything.
 
-### Test 3 — New feature planning (small repo)
+### 4. Validate
 
-| Metric | A (graph) | B (no map) |
-|------|:---:|:---:|
-| Tokens | 11K | **14K** |
-| Tool calls | 10 | 14 |
-| Identified impact correctly? | ✅ | ✅ |
+Before trusting the index:
 
-**23% fewer tokens.** The graph told Claude which files to skip. B explored files that turned out to be irrelevant.
+- confirm paths still exist
+- confirm `[[wikilink]]` references still resolve
+- confirm domains still match real repo boundaries
+- confirm the graph still reflects current change surfaces
 
-### Test 4 — Understanding a flow (small repo)
+## Why AI Builds the Index
 
-| Metric | A (graph) | B (no map) |
-|------|:---:|:---:|
-| Tokens | 5K | **6K** |
-| Tool calls | 5 | 8 |
-| Accurate explanation? | ✅ | ✅ |
+This repo used to lean more heavily on a generator script.
 
-**17% fewer tokens, 37% fewer tool calls.** Graph provided entry points directly.
+That turned out to be the wrong center of gravity.
 
-### Test 5 — Pattern audit: find all instances of a bug pattern (small repo)
+A script is good at syntax extraction.
 
-| Metric | A (graph) | B (no map) | A + Codex sweep |
-|------|:---:|:---:|:---:|
-| Tokens | 16K | 22K | 16K + $0.02 |
-| Tool calls | 12 | 18 | 12 + sweep |
-| Coverage | ~80% | ~60% | **100%** |
+It is not good at deciding:
 
-**Neither agent alone hits 100%.** Graph + Codex sweep: graph scopes the search area, Codex does exhaustive brute-force scan. Full coverage for ~$0.02.
+- what the real domain boundary is
+- which edges matter for change completeness
+- which conventions are invisible from imports
+- which nodes are worth keeping
+- which `must_check` rules are the difference between a correct edit and a partial edit
 
-### Test 6 — Bug fix: missing feature flag (large repo, 77K files)
+For a first-pass graph, AI judgment is usually worth more than deterministic coverage.
 
-| Metric | A (graph) | C (no map) |
-|------|:---:|:---:|
-| Tokens | 48K | **72K** |
-| Tool calls | 14 | 26 |
-| Found root cause? | ✅ | ✅ |
+## Benchmark Summary
 
-**33% fewer tokens on a 77K-file repo.** The graph narrowed the search from the entire monorepo to a single domain. C explored broadly before finding the right area.
+The public benchmark write-up that motivated this work is here:
 
-### Test 7 — Cross-repo investigation: frontend calling backend (large repo)
+https://dev.to/ithiria894/the-bottleneck-for-ai-coding-assistants-isnt-intelligence-its-navigation-2p30
 
-| Metric | A (graph) | C (no map) |
-|------|:---:|:---:|
-| Tokens | 55K | 82K |
-| Tool calls | 18 | 33 |
-| Found the backend endpoint? | ✅ | ✅ |
-| Found the wiring gap? | ✅ | ❌ |
+Across eight benchmark tasks, the pattern was consistent:
 
-C found the backend endpoint. A found that too — plus the fact that the frontend component called `get_tool_input_text()`. Infrastructure ready, caller not wired. **Graph saved 33% tokens** over no-map.
+- the graph usually reduced tool calls
+- the graph usually reduced token burn on cross-surface tasks
+- the graph improved change completeness most clearly when the task touched multiple layers
 
-### Test 8 — New feature investigation: session context tool calls (large repo, 4 approaches)
+### Benchmark Table
 
-Frontend developer asks: can we add tool calls, in/out flags, and tool names to the session context API?
+| Test | Graph | Comparison | What changed |
+|---|---:|---:|---|
+| 1 | `14K` tokens / `10` tool calls | `14K` / `12` | same token cost, fewer steps, better cascade awareness |
+| 2 | `5K` / `4` | `5.1K` / `5` | slightly cheaper, fewer steps |
+| 3 | `11K` / `10` | `14K` / `14` | lower cost, cleaner traversal |
+| 4 | `5K` / `5` | `6K` / `8` | lower cost, fewer tool calls |
+| 5 | `16K` / `12` | `22K` / `18` | lower cost and higher edit completeness |
+| 6 | `48K` / `14` | `72K` / `26` | large-repo navigation win |
+| 7 | `55K` / `18` | `82K` / `33` | large-repo navigation win |
+| 8 | `61K` / `17` | docs: `64K` / `35`, no-map: `47K` / `30` | graph used more tokens than a narrow no-map run, but still cut tool churn and beat prose-doc flow |
 
-| Metric | A (graph) | C (no map) | D (project docs) | E (fullstack-debug) | Aider map |
-|------|:---:|:---:|:---:|:---:|:---:|
-| Tokens | 61K | 47K | 64K | 49K | N/A |
-| Tool calls | **17** | 30 | 35 | 32 | N/A |
-| Found endpoint? | ✅ | ✅ | ✅ | ✅ | **❌** |
-| Found existing helpers? | ✅ | ✅ | ✅ | ✅ | — |
-| Extra insight | — | — | ⚠️ ingestion caveat | — | — |
+### What the numbers say
 
-**Aider's PageRank map completely failed** — 560 lines of map, but the session context endpoint wasn't "important enough" to be included. Agent D (project docs) found a critical caveat about data storage that others missed. Agent A used fewest tool calls (17 vs 30-35).
+- Median token savings versus the no-map baseline: about `21%`
+- Average tool-call reduction versus the no-map baseline: about `34%`
+- Biggest gains showed up when a task crossed routers, services, schemas, tests, configs, jobs, or migrations
 
-### Key findings
+The important nuance:
 
-**The graph's biggest value isn't saving tokens — it's preventing missed impact.** On a 10-file repo, savings are 17-23%. On a 77K-file repo, savings jump to 33-42%. But finding the cascade bug (the restore/undo path that only the graph version caught) — that's a qualitative difference, not quantitative.
+The AI Index is not guaranteed to be the absolute lowest-token path on every tiny task.
 
-**Aider's PageRank approach fails on specific feature investigation.** It optimizes for "globally important" functions, not "relevant to your task" functions. On the 77K-file repo, the session context endpoint wasn't in Aider's 560-line map at all.
+If the task is narrow, local, and already obvious, jumping straight into code can be cheaper.
 
-**No single approach achieves 100% coverage on pattern audits.** The best workflow is a hybrid: graph scopes down the search area, then Codex does exhaustive brute-force scanning for ~$0.02.
+But as soon as the task becomes "change this without missing anything related," the graph starts to pay for itself.
 
-**Project documentation adds unique value** — domain-specific caveats and business logic that code alone won't tell you. The graph's `Docs:` field links to these per-domain docs automatically.
+## Why We Say It Can Cover About 95% Of What Teams Actually Used Knowledge Graphs For
 
----
+This is a practical claim, not a philosophical one.
 
-## Quick start
+In day-to-day coding work, the questions people actually ask are usually:
 
-Install as a Claude Code plugin — drop it into any project in one command:
+- where do I start
+- what else is related
+- which files move together
+- what will I forget if I only follow imports
+- what tests or config surfaces should I inspect
+
+That is exactly what the AI Index is built to answer.
+
+For those practical workflows, it can usually replace roughly `95%` of the value people were getting from a traditional knowledge graph.
+
+What remains in the missing `5%`:
+
+- rich onboarding narrative
+- historical design rationale
+- architecture storytelling for humans
+- communication material you want to forward to people who are not in the code
+
+Those things can still matter.
+
+They are just not the highest-leverage format for a coding agent trying to make a correct edit.
+
+## When AI Index Works Best
+
+Use an AI Index when:
+
+- the repo is medium or large
+- tasks often cross multiple layers
+- agents frequently miss related edits
+- repo conventions matter as much as imports
+- you care about blast-radius analysis and change completeness
+
+It is especially good for:
+
+- bug fixes with hidden side effects
+- feature work that touches route, service, schema, config, and tests together
+- large repos with many entry points
+- review workflows where you want to check what else should have changed
+
+## When Traditional Documentation Still Helps
+
+Traditional docs still help when:
+
+- a new engineer needs the story before touching code
+- the system has difficult business context that is not visible in code
+- you need architecture communication for humans, not just navigation for AI
+- the repo is tiny and the codebase is already easy to sweep directly
+
+This repo is not arguing that human documentation has zero value.
+
+It is arguing that human documentation is often the wrong primary artifact for AI-assisted coding work.
+
+## Pros
+
+- faster orientation on non-trivial repos
+- fewer wasted tool calls
+- better blast-radius analysis
+- better odds of complete edits
+- lower duplication than prose-heavy doc systems
+- easier to keep operational than a full knowledge graph
+
+## Cons
+
+- still requires disciplined maintenance
+- can drift if updates are skipped
+- not a replacement for reading source
+- weaker than human docs for onboarding narrative
+- can be overkill for very small repos
+- depends on good domain boundaries; bad boundaries make the graph noisy
+
+## Why The Folder Usually Ends Up Smaller Than Traditional Docs
+
+The AI Index keeps only what code search misses:
+
+- domain boundaries
+- change surfaces
+- non-obvious coupling
+- must-check rules
+- a small number of anchor nodes
+
+It deliberately avoids:
+
+- long feature summaries
+- repeated explanations of code behavior
+- exhaustive function-by-function prose
+- mirrored inverse relationships that can be derived from search
+
+That usually means:
+
+- fewer words
+- less repetition
+- smaller doc footprint
+- higher ratio of operational signal to maintenance cost
+
+## Default Layout
+
+```text
+AI_INDEX.md
+AI_INDEX/
+  domain-a.md
+  domain-b.md
+  domain-c.md
+```
+
+Root file:
+
+- read order
+- repo-wide rules
+- domain index
+
+Domain file:
+
+- scope
+- change surfaces
+- must-check rules
+- critical nodes
+
+## Quick Start
+
+Install as a Claude Code plugin:
 
 ```bash
-# Add the marketplace
-/plugin add-marketplace https://github.com/ithiria894/claude-code-best-practices
-
-# Install
+/plugin add-marketplace https://github.com/ithiria894/AI-Index
 /plugin install codebase-navigator
 ```
 
-Once installed, the skills are available in any project:
+Then start with:
 
-```
-/codebase-navigator:generate-graph    → build the graph
-/codebase-navigator:debug             → fix bugs
-/codebase-navigator:new-feature       → add features
-/codebase-navigator:sync-graph        → keep graph fresh
+```text
+/ai-index
 ```
 
-Run `/codebase-navigator:generate-graph` on a new repo to get started. After that, just describe your task — Claude picks the right skill automatically.
+Common modes:
 
-**Manual install** (if you prefer copying files): see [manual setup guide](docs/manual-setup.md).
+- `/use-ai-index` when the repo already has an index
+- `/generate-graph` when starting from zero
+- `/sync-graph` after meaningful code changes
 
----
+## Bottom Line
 
-## Templates and config
+If your problem is "the AI does not understand the feature," write docs.
 
-| File | What it is |
-|---|---|
-| [`scripts/generate-ai-index.mjs`](scripts/generate-ai-index.mjs) | Deterministic AI_INDEX generator — scans imports, outputs routing manifest |
-| [`templates/AI_INDEX_TEMPLATE.md`](templates/AI_INDEX_TEMPLATE.md) | Full AI_INDEX format with Connects to and Docs fields |
-| [`templates/MEMORY_INDEX_TEMPLATE.md`](templates/MEMORY_INDEX_TEMPLATE.md) | Memory file structure and frontmatter |
-| [`.claude/settings.json`](.claude/settings.json) | LSP + deny rules + hook scaffold |
+If your problem is "the AI changes one file and misses five related ones," build an AI Index.
 
----
-
-## Contributing
-
-This is a living document. New best practices added as they're validated in real use.
-
-Rules:
-- Every technique must cite a source or explain the first-principles reasoning
-- No "just add this" without explaining why it works
-- Failure cases are as valuable as success patterns
+That is the whole bet behind this repo.

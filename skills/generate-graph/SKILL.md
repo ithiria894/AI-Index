@@ -1,170 +1,235 @@
 ---
 name: generate-graph
-description: Generate or update the codebase graph (AI_INDEX.md). Script builds the skeleton (~85%), Claude fills the edges to 100%. Run on new repos or after structural changes.
+description: Build an AI-only repository graph (AI_INDEX.md + AI_INDEX/*.md) for any repo. AI inspects the repo, defines domains, records change surfaces, adds critical nodes, and validates the result. No script generation.
 ---
-
-> **[codebase-navigator plugin — generate-graph skill]**
 
 # Generate Graph
 
-Generate or update the repo's codebase graph (AI_INDEX.md). Two-phase process: script builds the skeleton, Claude fills the gaps.
+Build the repo's AI Index from scratch.
+
+This is an AI-first workflow. Do not use a generator script. The agent should inspect the real repo structure, decide domain boundaries, and write the graph directly.
+Use whichever search, filesystem, and code-navigation tools are available in the current environment.
+
+---
+
+## Goal
+
+Produce an AI Index that is:
+
+- useful for traversal
+- useful for blast-radius analysis
+- light on prose
+- complete at the change-surface level
+
+The output should default to:
+
+```text
+AI_INDEX.md
+AI_INDEX/<domain>.md
+```
 
 ---
 
 ## Rules
 
-- AI_INDEX.md is navigation only. Never write explanations of how code works.
-- If an entry sounds like documentation, rewrite it as a pointer.
-- Final output must be under 250 lines. 4–8 lines per domain.
-- Every "Connects to" must come from an actual import/call, not guessing.
+- Do not generate a human guide.
+- Do not write explanations of code behavior.
+- Do not try to make every function a node.
+- Build by repo structure and change ownership, not by package names alone.
+- Prefer verified edges. Use inferred edges sparingly.
+- If a rule matters for change completeness but is not obvious from imports, record it under `Global Rules` or `must_check`.
 
 ---
 
-## Phase 0 — First-run setup (only once per repo)
+## Phase 1 — Inspect the repo shape
 
-Ask the user two questions:
+Read only enough to establish the repo's traversal model:
 
-1. **Where is your source code?** (e.g., `src/`, `app/`, `lib/`) — default: `src/`
-2. **Does this repo have developer documentation?** (e.g., `docs/`, `wiki/`, `documentation/`) — if yes, the script auto-links matching docs to each domain via the `Docs:` field.
+1. Repo root structure
+2. AGENTS / CLAUDE / repo rules if present
+3. README / package metadata if needed
+4. Main code directories
+5. Major test directories
+6. Any clear architectural convention files
 
-If the user doesn't know, scan the repo root: `ls` for common directories.
+Look for:
 
----
+- entry points
+- layer conventions
+- feature boundaries
+- background jobs / workers / ETL
+- schema / model layout
+- config files that must change with code
 
-## Phase 1 — Script builds the skeleton (~85%)
-
-```bash
-node scripts/generate-ai-index.mjs [srcDir] [testDir] > AI_INDEX_DRAFT.md
-```
-
-The script auto-detects:
-- Domains (top-level directories or flat files in src/)
-- Entry files (index/main/mod/__init__, or shortest filename)
-- Exported symbols (functions, classes, types, interfaces)
-- Cross-domain imports → "Connects to" edges with symbol names
-- HTTP routes (Express, Flask, FastAPI, NestJS, raw HTTP patterns)
-- Test file mapping (by domain/filename matching)
-
-If the script is not available, go to Phase 2 directly (manual full scan).
+Do not start writing the graph before you understand the repo's major layers.
 
 ---
 
-## Phase 2 — Claude fills the gaps to 100%
+## Phase 2 — Define domains
 
-Read the script output in AI_INDEX_DRAFT.md. For each domain, verify and fix:
+Partition the repo into domains by **change ownership**, not by folder count.
 
-### 2a — Missing edges (most important)
+A good domain groups code that tends to change together.
 
-The script detects imports but may miss:
-- **HTTP/RPC connections** the regex didn't catch → grep for route patterns:
-  ```bash
-  grep -rn "router\.\|app\.\(get\|post\)\|@app\.route\|path ===" src/
-  ```
-- **Frontend → Backend calls** → grep for fetch/axios URLs:
-  ```bash
-  grep -rn "fetch\|axios\|/api/" src/ui/ src/frontend/ src/client/
-  ```
-- **Implicit dependencies** (event emitters, middleware chains, DI containers) → read entry files of connected domains
+Examples:
 
-For each missing edge found, add it:
+- a feature slice
+- a utility subsystem
+- a platform layer
+- a cross-cutting integration area
+
+Avoid:
+
+- one domain per tiny folder
+- one giant domain covering unrelated systems
+- splitting domains only because routers and services live in different directories
+
+The test:
+
+> If I change this capability, would I naturally inspect these surfaces together?
+
+If yes, they belong in one domain.
+
+---
+
+## Phase 3 — Create the root index
+
+Write `AI_INDEX.md` first.
+
+It must contain:
+
+1. `Read Order`
+2. `Global Rules`
+3. `Domain Index`
+4. `Repository root` if the AI Index lives outside the repo
+
+### Root quality bar
+
+- Root file should be readable in one pass.
+- `Global Rules` must contain only repo-wide or multi-domain rules.
+- `Domain Index` should let an AI decide which domain files to open next.
+
+Domain Index columns:
+
+| Column | Meaning |
+|--------|---------|
+| `Domain` | display name |
+| `File` | `AI_INDEX/<domain>.md` |
+| `Owns` | short category hint |
+| `Open When` | task triggers |
+
+---
+
+## Phase 4 — Build each domain file
+
+For every domain, write `AI_INDEX/<domain>.md`.
+
+### Required sections
+
+#### `## Scope`
+
+Must contain:
+
+- `owns`
+- `open_when`
+- `change_surfaces`
+
+`change_surfaces` should include only the keys that exist in the repo:
+
+- `routes`
+- `services`
+- `model_utils`
+- `models`
+- `api_schemas`
+- `core_schemas`
+- `graphql`
+- `jobs_or_etl`
+- `tests`
+- `configs`
+- `migration_search`
+- `scripts`
+
+#### `must_check`
+
+Add this whenever related work could be missed by import tracing alone.
+
+Examples:
+
+- config sync after route changes
+- migration checks after model changes
+- scope enforcement rules
+- external contract or payload coupling
+
+#### `## Nodes`
+
+Add only critical traversal anchors:
+
+- main routers
+- core services
+- important model utils / repositories
+- hot query / orchestration paths
+- major config or job entry points
+
+Do not create nodes for every helper.
+
+---
+
+## Node format
+
 ```markdown
-- Connects to:
-  - New domain — via function_name() in src/path/file.py
+### NodeName
+- kind: router|service|model_utils|model|schema|graphql|job|config|module|class|function
+- at: `relative/path.py`
+- search: term 1, term 2, term 3
+- uses: [[NodeA]] (verified), [[NodeB]] (inferred)
+- tests: `tests/path/`
+- hot: true
 ```
 
-### 2b — Weak Search terms
+Field rules:
 
-The script extracts exported symbol names, but sometimes:
-- Only one generic name (e.g., `scan` instead of `scanAll, scanScope, discoverProjects`)
-- This happens when a module wraps internals behind a single export
-
-Fix: read the entry file, find the top 3-5 most-used public functions, add them:
-```markdown
-- Search: scanAll, scanScope, discoverProjects, CATEGORIES
-```
-
-### 2c — Wrong test mapping
-
-The script matches tests by filename, which can be wrong (e.g., `pw-scanner-upgrade.cjs` is not a unit test for scanner). Fix:
-- Remove non-unit/non-integration tests
-- Add correct tests by grepping for domain symbols in test files:
-  ```bash
-  grep -rl "scanAll\|scanScope" tests/
-  ```
-
-### 2d — Missing descriptions
-
-Add a short parenthetical label to each domain name if not obvious:
-```markdown
-### Scanner (discovery engine)    ← what it does in 2-3 words
-### Mover (mutation layer)
-### Effective (scope resolution)
-```
-
-### 2e — Link domain docs
-
-The script auto-detects docs in `docs/` directories. If a domain has no `Docs:` line but the repo has documentation:
-
-1. Ask the user: "Does this repo have developer documentation? Where is it?" (e.g., `docs/`, `wiki/`, `documentation/`)
-2. For each domain, find matching docs and add:
-```markdown
-- Docs: `docs/knowledge-graph/firewall.md`, `docs/api/firewall.md`
-```
-
-Domain docs contain business logic, caveats, and design decisions that code alone won't tell you. The `/debug` and `/new-feature` workflows read these before tracing code.
+- `kind`, `at`, `search` are the default core.
+- `uses` is optional but strongly recommended for important traversal edges.
+- `tests` is optional.
+- `hot` is optional and should stay sparse.
+- Do not add `names`, `used_by`, or prose descriptions.
 
 ---
 
-## Phase 3 — Validate
+## Phase 5 — Validate before finishing
 
-- [ ] Every Entry file exists
-- [ ] Every Tests file exists
-- [ ] Every "Connects to" is a real import/call
-- [ ] No explanations, no "usually", no "roughly"
-- [ ] Search terms are actual exported symbol names
-- [ ] Every domain that imports from another has a "Connects to" edge
-- [ ] Domains with known documentation have a `Docs:` link
+Before you consider the build done, verify:
 
----
-
-## Phase 4 — Finalize
-
-```bash
-mv AI_INDEX_DRAFT.md AI_INDEX.md
-```
+- Every domain in `AI_INDEX.md` has a real file under `AI_INDEX/`
+- Every `AI_INDEX/<domain>.md` is listed in the root index
+- Every `at` path exists
+- Every `tests` path exists
+- Every `[[wikilink]]` resolves to one node in the same domain file or an explicitly prefixed node in another domain file
+- Every important repo surface belongs to a domain
+- `Global Rules` and `must_check` cover the non-obvious repo conventions
 
 ---
 
-## Output format
+## Definition of done
 
-```markdown
-# AI_INDEX.md
+The build is done when:
 
-## How to use this file
-- Navigation only. Not source of truth.
-- Read actual source files before making any claim.
+- the repo has a root AI index
+- every important domain has a domain file
+- all major change surfaces are covered
+- critical traversal anchors exist as nodes
+- the graph is concise enough for AI to use quickly
 
----
-
-### Domain name (short description)
-- Entry: `path/to/entry.py`
-- Search: symbol1, symbol2, symbol3
-- Routes: `GET /api/resource`, `POST /api/action`
-- Tests: `tests/test_domain.py`
-- Docs: `docs/knowledge-graph/domain.md`, `docs/api/domain.md`
-- Connects to:
-  - Other domain — via function() in file.py
-  - API layer — via POST /endpoint in routes.py
-```
+Done does **not** require exhaustive symbol coverage.
 
 ---
 
-## When to update
+## When to use this skill
 
-Run this skill when:
-- You add a new module or domain
-- You rename or move entry files
-- You add new cross-domain connections
-- `ls src/` looks different from what the index describes
+Use this skill when:
 
-For incremental updates after a feature/bug fix, use `/sync-graph` instead.
+- the repo has no AI Index yet
+- the existing graph format is being replaced
+- a major restructure invalidated the old graph
+
+For day-to-day maintenance after code changes, use the `sync-graph` skill.

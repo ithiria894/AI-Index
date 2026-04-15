@@ -1,7 +1,7 @@
 {
   "name": "codebase-navigator",
   "version": "0.1.0",
-  "description": "Not another code graph engine. A lightweight navigation workflow for AI coding agents.",
+  "description": "AI-maintained repository graph workflow for change-complete navigation.",
   "type": "module",
   "scripts": {
     "generate": "node scripts/generate-ai-index.mjs"

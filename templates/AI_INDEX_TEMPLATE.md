@@ -1,60 +1,77 @@
-# AI_INDEX.md
+# AI Index — {repo name}
+<!-- Last updated: {YYYY-MM-DD} -->
+<!-- Verified against: {HEAD|commit hash} -->
+<!-- Domains: {count} -->
+<!-- Repository root: {absolute path if AI Index lives outside the repo} -->
 
-## How to use this file
+## Read Order
+1. Read this file.
+2. Pick domains from the index below.
+3. Open only those domain files.
+4. Resolve the repository root.
+5. Read source at `at` paths relative to that root before making claims or edits.
 
-- **Navigation only.** This file tells you where to look — not what the answer is.
-- Do not treat any description here as source of truth.
-- Before making any claim, read the actual source files.
-- Prefer grep/glob/LSP search before opening large files.
+## Global Rules
+- Add repo-wide change rules here.
+- Keep them operational and terse.
+- Only include rules that affect multiple domains or the whole repo.
 
----
+## Domain Index
 
-## Main domains
-
-### [Domain name — e.g. Rule evaluation]
-
-- **Purpose:** [One line: what does this domain do?]
-- **Entry:** `src/[path]/[file].py`
-- **Search terms:** `FunctionName`, `ClassName`, `CONSTANT_NAME`
-- **Tests:** `tests/[path]/test_[file].py`
-- **Connects to:**
-  - [Adjacent domain] — via `InterfaceName.method()` in `src/[path]/[file].py`
-  - [API layer] — via `POST /api/[endpoint]` in `src/api/[routes].py`
-
----
-
-### [Domain name — e.g. Content type handling]
-
-- **Purpose:** [One line]
-- **Entry:** `src/[path]/[file].py`
-- **Search terms:** `keyword_one`, `keyword_two`
-- **Tests:** `tests/[path]/test_[file].py`
-- **Connects to:**
-  - [Domain] — via [interface]
+| Domain | File | Owns | Open When |
+|--------|------|------|-----------|
+| {Domain Name} | `AI_INDEX/{domain}.md` | short category hint | task triggers that mean "open this domain" |
+| {Domain Name} | `AI_INDEX/{domain}.md` | short category hint | task triggers that mean "open this domain" |
 
 ---
 
-## Investigation rules
+# Domain — {Domain Name}
+<!-- Nodes: {count} | Hot: {count} -->
 
-- Read only the files needed for the current task.
-- If uncertain about something not in this index, say "uncertain" and grep for it.
-- Do not infer behavior from this index alone.
-- This file should stay under 250 lines. If it grows beyond that, split into domain-specific files.
+## Scope
+- owns: `path/a`, `path/b`
+- open_when: short operational triggers
+- change_surfaces:
+  - routes: `...`
+  - services: `...`
+  - model_utils: `...`
+  - models: `...`
+  - api_schemas: `...`
+  - core_schemas: `...`
+  - graphql: `...`
+  - jobs_or_etl: `...`
+  - tests: `...`
+  - configs: `...`
+  - migration_search: `keyword1`, `keyword2`
+- must_check:
+  - `path/or/system` when X changes
+  - `path/or/system` when Y changes
+
+## Nodes
+
+### {NodeName}
+- kind: {router|service|model_utils|model|schema|graphql|job|config|module|class|function}
+- at: `relative/path.py`
+- search: term 1, term 2, term 3
+- uses: [[NodeA]] (verified), [[NodeB]] (inferred)
+- tests: `tests/path/`
+- hot: true
+
+### {NodeName}
+- kind: {router|service|model_utils|model|schema|graphql|job|config|module|class|function}
+- at: `relative/path.py`
+- search: term 1, term 2, term 3
+- uses: [[NodeC]] (verified)
 
 ---
 
-## Keep this file healthy
+## Template Rules
 
-**Good entry (pointer only):**
-```
-- Entry: src/auth/middleware.py
-- Search: verify_token, AuthError
-```
-
-**Bad entry (summary — delete this kind):**
-```
-The auth middleware works by first extracting the JWT from the Authorization header,
-then verifying the signature using the public key stored in...
-```
-
-If you find yourself writing explanations, stop. Write a file path instead.
+- Root file lives at `{repo_root}/AI_INDEX.md`.
+- Domain files live under `{repo_root}/AI_INDEX/`.
+- `Repository root` is optional when the index lives inside the repo; include it when the index lives elsewhere.
+- Build by AI, not by script.
+- Change surfaces are mandatory.
+- Nodes are selective, not exhaustive.
+- Do not write human-oriented explanations.
+- Do not add `used_by`; derive inverse edges from `uses`.

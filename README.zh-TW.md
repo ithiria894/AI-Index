@@ -1,266 +1,396 @@
-# Claude Code 最佳實踐
+# AI Index
+
+> 給 coding agents 用的導航基建。
 
 [English](README.md)
 
-你問 Claude 一個函式是怎樣運作的。它給你一個詳盡、自信的解釋。
+大部分 AI coding 失敗，不是因為模型不夠聰明。
 
-你根據它說的繼續做了一個小時。然後你發現它說的是錯的。
+而是因為它迷路了。
 
-又或者：你改了一個函式，測試通過，你 ship 了。三天後——四個地方都在呼叫那個函式，全部壞掉了。Claude 從來沒有提醒你。
+模型可以讀 code，但它仍然要自己摸索：
 
-根本原因只有一個：**Claude 沒有辦法在你的程式碼庫裡導航。**
+- 應該從哪裡開始
+- 哪些檔案屬於同一個 change surface
+- 哪些 convention 不會直接出現在 import edge 上
+- 改完這裡後，還有什麼一定要一起檢查
 
-它每次從零開始。它讀你給它的東西。它猜它沒有的東西。你就得到幻覺、漏掉的影響範圍、盲點裡引入的 bug。
+這個 repo 想解決的，就是這個問題。
 
-解決方案不是更聰明的模型。是一張地圖。
+## 核心主張
 
----
+傳統 documentation 是寫給人看的。
 
-## 這個 plugin 做什麼
+AI coding agent 不需要每個 feature 都有人話重寫一次，因為它可以直接看 code。它真正缺的是一張可靠的地圖：
 
-四個 Claude Code 技能，給 Claude 一張持久、結構化的程式碼庫地圖——加上有效使用它的工作流程。
+- 應該先開哪個 domain file
+- 哪些 layer 本來就是一起變動的
+- 哪些 config、job、test、schema、migration 最容易漏
+- 哪些 repo-specific 規則會改變 blast radius
 
-| 技能 | 功能 |
-|---|---|
-| `/generate-graph` | 建立程式碼庫地圖（domain → 檔案 → 關係 → 文件連結） |
-| `/sync-graph` | 改動後保持地圖更新 |
-| `/debug` | 定位 → 找根因 → Codex 掃描 → 修復 |
-| `/new-feature` | 找現有模式 → 追蹤影響 → 實作 |
+`AI Index` 就是這張地圖。
 
-地圖（AI_INDEX.md）存在你的 repo 裡。Claude 在每次任務開始時讀取它。它知道哪些檔案屬於哪個 domain、現有的模式是什麼、文件在哪裡。
+它不是 generated symbol dump。
+它不是 call graph。
+它不是人類 knowledge base。
 
----
+它是一個由 AI 維護、專門給 AI 做 change-complete navigation 用的 repository graph。
 
-## 你的工作流程（人的部分）
+## 這個 Repo 放了什麼
 
-你不需要理解內部機制。你不需要選擇方法。Plugin 會自動處理。以下是你的工作日實際上的樣子：
+這個 repo 把整套方法包成 Claude Code 友善的形式：
 
-**第一次用這個 repo：**
-```plaintext
-/generate-graph
+- AI Index spec
+- 最小 template
+- `use`、`generate`、`sync` 三類 skills
+
+主要檔案：
+
+- [`docs/AI_INDEX_SPEC.md`](docs/AI_INDEX_SPEC.md)
+- [`templates/AI_INDEX_TEMPLATE.md`](templates/AI_INDEX_TEMPLATE.md)
+- [`skills/ai-index/SKILL.md`](skills/ai-index/SKILL.md)
+- [`skills/use-ai-index/SKILL.md`](skills/use-ai-index/SKILL.md)
+- [`skills/generate-graph/SKILL.md`](skills/generate-graph/SKILL.md)
+- [`skills/sync-graph/SKILL.md`](skills/sync-graph/SKILL.md)
+
+## 核心概念
+
+AI Index 夾在 raw code search 和傳統 documentation 之間。
+
+Raw code search 很擅長回答局部真相：
+
+- 這個檔案做什麼
+- 這個 function call 了什麼
+- 這個 symbol 在哪裡定義
+
+但 raw search 不擅長回答 repo-level completeness：
+
+- 哪些 sibling layers 也要一起看
+- 這個 task 應該歸哪個 domain
+- 哪些 convention 是真的存在，但 import edge 看不出來
+
+傳統 docs 或 knowledge graph 很擅長敘事：
+
+- 這個 subsystem 是做什麼的
+- 人類會怎樣描述它
+- 高層 flow 長什麼樣
+
+但它們通常不擅長 edit completeness：
+
+- live code surface cover 不夠
+- 很容易 stale
+- 維護成本高
+- 最後 agent 還是要重新找一輪真正的 touch points
+
+AI Index 就是中間那個 sweet point：
+
+- 比 prose docs 更結構化
+- 比 flat index 更懂 repo
+- 比人類導向 documentation 更少重複
+
+## Data Structure：Tree 同 Graph 的分別
+
+這是最重要的設計差異。
+
+### 傳統 Knowledge Graph / Documentation Tree
+
+典型形狀：
+
+```text
+index
+  -> feature doc
+    -> deeper doc
+      -> code pointers
 ```
-完成。30 秒。你現在有一張 graph 了。
 
-**有人回報了一個 bug：**
-```plaintext
-你：「修這個 bug：[貼上 Slack 訊息 / 錯誤 / 截圖]」
-```
-Claude 自動讀取 graph、找到對應的 domain、讀取文件、追蹤程式碼、找出根因、提出修復方案。你 review 然後 merge。
+它本質上仍然是一棵 document tree。
 
-**有人要求一個新功能：**
-```plaintext
-你：「加這個功能：[貼上需求]」
-```
-Claude 找一個類似的現有功能，跨所有層複製模式，然後實作。你 review 然後 merge。
+它擅長回答：
 
-**你懷疑同樣的 bug 可能有更多地方：**
-```plaintext
-你：「用 Codex 在這個檔案裡掃描同樣的模式」
-```
-Codex 用 ~$0.02 做徹底的暴力掃描，找出每一個 instance。Claude 全部修掉。
+- 「這個 feature 是什麼？」
+- 「這個系統怎樣運作？」
+- 「人下一步應該看哪份文檔？」
 
-**就是這樣。** 你貼上問題，Claude 跑完工作流程，你 review 輸出。Graph、文件、BFS 遍歷、模式掃描——全部在背後自動進行。你不需要手動呼叫技能，不需要選擇方法。你只需要說你要什麼。
+所以它很適合 onboarding 和 architecture walkthrough。
 
-你唯一需要記住的：
-- 第一次 → `/generate-graph`
-- 之後 → 直接貼上任務讓 Claude 去做
+### AI Index Graph
 
----
+典型形狀：
 
-## 它是怎麼運作的
-
-### 地圖
-
-`/generate-graph` 產生 `AI_INDEX.md`——一個結構化的路由清單：
-
-```yaml
-## Domain: auth
-Files: src/auth/login.py, src/auth/tokens.py, src/auth/middleware.py
-Patterns: JWT tokens, session handling
-Docs: docs/auth/overview.md
+```text
+AI_INDEX.md
+  -> domain file
+    -> change surfaces
+    -> must_check rules
+    -> critical nodes
+    -> verified edges
 ```
 
-Claude 在每次任務開始時讀取它。它知道哪些檔案屬於哪個 domain、現有的模式是什麼、文件在哪裡。沒有幻覺，沒有猜測。
+它是一張 traversal graph。
 
-### 各技能說明
+它擅長回答：
 
-**`/debug`** — 結構化工作流程，不是一個 prompt
+- 「我應該先開哪個 domain？」
+- 「如果我改這個 route 或 service，還要一起看什麼？」
+- 「哪些檔案本來就屬於同一個 change surface？」
 
-1. 定位入口點（graph → domain → 檔案）
-2. 讀取相關程式碼
-3. 找出根因
-4. Codex 掃描：對所有檔案做徹底掃描找同樣模式（~$0.02）
-5. 修復所有 instance
+所以它很適合 implementation、debug、impact analysis，以及避免漏改 related changes。
 
-**`/new-feature`** — 找現有模式，複製它
+## Methodology
 
-1. Graph → 找一個類似的現有功能
-2. 追蹤那個功能的影響，了解它碰到了哪些層
-3. 按照同樣模式在每一層實作新功能
+整套 workflow 有四部分。
 
-**`/sync-graph`** — 保持地圖更新
+### 1. Use
 
-重大改動後，`/sync-graph` 更新 AI_INDEX.md。把新檔案加到正確的 domain、更新模式列表、保持文件連結有效。
+當 repo 已經有 AI Index：
 
----
+- 先讀 `AI_INDEX.md`
+- 選最相關的一小組 domains
+- 只開那些 domain files
+- 看清楚 change surfaces
+- 編輯前先跟 `must_check`
 
-## 它真的有效嗎？
+這樣可以避免 agent 一開工就盲搜。
 
-九個 benchmark 任務，跨越不同大小的 repo（小型 hobby 專案到 77K 檔案的 monorepo），比較對象：有 graph 的導航 vs. 沒有地圖 vs. 專案文件 vs. fullstack-debug vs. Aider 的 PageRank 地圖。
+### 2. Generate
 
-### 總結：各方法在什麼情況下有效？
+當 repo 還沒有 AI Index：
 
-| 任務類型 | Token 節省（graph vs 無地圖） | 品質差異 |
-|---|:---:|---|
-| Bug fix（入口明確） | ~0% | Graph 找到其他方法漏掉的**連鎖影響** |
-| Bug fix（UI 流程） | ~3% | 相當 |
-| 新功能規劃 | **23%** | Graph 知道哪些檔案可以跳過 |
-| 理解一個流程 | **17%** | Graph 直接提供入口點 |
-| 模式稽核（大型 repo） | **42%** | Graph + Codex = 100% 覆蓋率 |
-| 跨 repo 調查 | **33%** | Graph 指向正確的 repo/domain |
-| 功能調查（大型 repo） | 不定 | **Aider PageRank 失敗；graph + docs 勝出** |
+- inspect repo structure
+- 找出真正的 domains
+- 為每個 domain 畫出主要 change surfaces
+- 只記錄高價值 nodes 和 verified edges
+- 不寫給人看的 prose
 
-### Test 1 — Bug fix：缺少 rate limit（小型 repo）
+重點不是把每個 function 都編目。
 
-| 指標 | A（graph） | B（無地圖） |
-|------|:---:|:---:|
-| Tokens | 14K | 14K |
-| Tool calls | 10 | 12 |
-| 找到根因？ | ✅ | ✅ |
-| 找到連鎖影響？ | ✅ | ❌ |
+重點是做一張之後能讓改動更完整的 graph。
 
-**Token 一樣，但 B 漏掉了 restore/undo 路徑。** 它修了主要的 bug，卻留下一個次要的程式碼路徑壞掉。A 找到了，因為 trace-impact 走完了完整的 call graph。
+### 3. Sync
 
-### Test 2 — Bug fix：UI 刷新問題（小型 repo）
+做完有意義的改動之後：
 
-| 指標 | A（graph） | B（無地圖） |
-|------|:---:|:---:|
-| Tokens | 5K | 5.1K |
-| Tool calls | 4 | 5 |
-| 找到根因？ | ✅ | ✅ |
+- 看 changed files
+- 對回受影響的 domains
+- 更新對應 domain file
+- 只有影響 repo-wide 行為時才改 root rules
+- 重新檢查 path 和 links
 
-簡單的 UI bug——效能相當。入口點明顯時 graph 幫助不大。
+這樣就可以低成本維護 graph，而不是每次重建整套。
 
-### Test 3 — 新功能規劃（小型 repo）
+### 4. Validate
 
-| 指標 | A（graph） | B（無地圖） |
-|------|:---:|:---:|
-| Tokens | 11K | **14K** |
-| Tool calls | 10 | 14 |
-| 正確識別影響範圍？ | ✅ | ✅ |
+在相信這份 index 之前：
 
-**少 23% token。** Graph 告訴 Claude 哪些檔案可以跳過。B 探索了結果發現不相關的檔案。
+- 確認 path 還存在
+- 確認 `[[wikilink]]` 還 resolve 得到
+- 確認 domains 仍然符合真實 repo 結構
+- 確認 graph 仍然反映現在的 change surfaces
 
-### Test 4 — 理解一個流程（小型 repo）
+## 為什麼要由 AI 來建
 
-| 指標 | A（graph） | B（無地圖） |
-|------|:---:|:---:|
-| Tokens | 5K | **6K** |
-| Tool calls | 5 | 8 |
-| 解釋準確？ | ✅ | ✅ |
+這個 repo 以前比較依賴 generator script。
 
-**少 17% token，少 37% tool calls。** Graph 直接提供入口點。
+後來發現，重心放錯了。
 
-### Test 5 — 模式稽核：找出所有同樣 bug 模式的 instance（小型 repo）
+script 很擅長做 syntax extraction。
 
-| 指標 | A（graph） | B（無地圖） | A + Codex 掃描 |
-|------|:---:|:---:|:---:|
-| Tokens | 16K | 22K | 16K + $0.02 |
-| Tool calls | 12 | 18 | 12 + 掃描 |
-| 覆蓋率 | ~80% | ~60% | **100%** |
+但它不擅長決定：
 
-**兩個 agent 單獨都達不到 100%。** Graph + Codex 掃描：graph 縮小搜尋範圍，Codex 做徹底的暴力掃描。用 ~$0.02 達到完整覆蓋。
+- 真正的 domain boundary 是什麼
+- 哪些 edges 對 change completeness 最重要
+- 哪些 convention import 看不出來
+- 哪些 nodes 值得保留
+- 哪些 `must_check` 規則是一個 edit 會不會做完整的關鍵
 
-### Test 6 — Bug fix：缺少 feature flag（大型 repo，77K 檔案）
+對第一版 graph 來說，AI 的判斷通常比 deterministic coverage 更值錢。
 
-| 指標 | A（graph） | C（無地圖） |
-|------|:---:|:---:|
-| Tokens | 48K | **72K** |
-| Tool calls | 14 | 26 |
-| 找到根因？ | ✅ | ✅ |
+## Benchmark 摘要
 
-**在 77K 檔案的 repo 上少 33% token。** Graph 把搜尋範圍從整個 monorepo 縮小到單一 domain。C 廣泛探索後才找到正確的區域。
+推動這個方向的公開 benchmark 文章在這裡：
 
-### Test 7 — 跨 repo 調查：前端呼叫後端（大型 repo）
+https://dev.to/ithiria894/the-bottleneck-for-ai-coding-assistants-isnt-intelligence-its-navigation-2p30
 
-| 指標 | A（graph） | C（無地圖） |
-|------|:---:|:---:|
-| Tokens | 55K | 82K |
-| Tool calls | 18 | 33 |
-| 找到後端 endpoint？ | ✅ | ✅ |
-| 找到接線缺口？ | ✅ | ❌ |
+八個 benchmark task 的整體結果很一致：
 
-C 找到了後端 endpoint。A 也找到了——加上發現前端元件呼叫了 `get_tool_input_text()`。基礎設施已就緒，呼叫者還沒接上。**Graph 比無地圖省了 33% token。**
+- graph 通常可以減少 tool calls
+- graph 通常可以減少跨 surface task 的 token 消耗
+- 當 task 牽涉多層時，graph 對 change completeness 的幫助最明顯
 
-### Test 8 — 新功能調查：session context tool calls（大型 repo，4 種方法）
+### Benchmark Table
 
-前端開發者問：我們可以把 tool calls、in/out flags、tool names 加到 session context API 嗎？
+| Test | Graph | 比較組 | 觀察 |
+|---|---:|---:|---|
+| 1 | `14K` tokens / `10` tool calls | `14K` / `12` | token 一樣，但步驟更少，cascade awareness 更好 |
+| 2 | `5K` / `4` | `5.1K` / `5` | 稍微更省，步驟更少 |
+| 3 | `11K` / `10` | `14K` / `14` | 成本更低，traversal 更乾淨 |
+| 4 | `5K` / `5` | `6K` / `8` | 成本更低，tool calls 更少 |
+| 5 | `16K` / `12` | `22K` / `18` | 成本更低，而且 edit completeness 更高 |
+| 6 | `48K` / `14` | `72K` / `26` | 大 repo 導航優勢明顯 |
+| 7 | `55K` / `18` | `82K` / `33` | 大 repo 導航優勢明顯 |
+| 8 | `61K` / `17` | docs: `64K` / `35`, no-map: `47K` / `30` | graph 比超窄 no-map run 用多了 token，但仍然大幅減少 tool churn，也優於 prose-doc flow |
 
-| 指標 | A（graph） | C（無地圖） | D（專案文件） | E（fullstack-debug） | Aider map |
-|------|:---:|:---:|:---:|:---:|:---:|
-| Tokens | 61K | 47K | 64K | 49K | N/A |
-| Tool calls | **17** | 30 | 35 | 32 | N/A |
-| 找到 endpoint？ | ✅ | ✅ | ✅ | ✅ | **❌** |
-| 找到現有 helpers？ | ✅ | ✅ | ✅ | ✅ | — |
-| 額外洞察 | — | — | ⚠️ ingestion 注意事項 | — | — |
+### 這些數字代表什麼
 
-**Aider 的 PageRank 地圖完全失敗**——560 行的地圖，但 session context endpoint 不夠「重要」沒有被納入。Agent D（專案文件）找到了一個其他方法都漏掉的資料儲存注意事項。Agent A 用了最少的 tool calls（17 vs 30-35）。
+- 對 no-map baseline，median token savings 大約是 `21%`
+- 對 no-map baseline，average tool-call reduction 大約是 `34%`
+- 最大收益通常出現在 task 同時跨 route、service、schema、test、config、job 或 migration 的時候
 
-### 關鍵發現
+最重要的 nuance 是：
 
-**Graph 最大的價值不是省 token——是防止漏掉影響範圍。** 在 10 個檔案的 repo 上，token 節省是 17-23%。在 77K 檔案的 repo 上，跳到 33-42%。但找到 Test 1 的連鎖 bug（只有 graph 版本抓到的 restore/undo 路徑）——那是質的差異，不是量的差異。
+AI Index 並不保證在每個超小 task 上都是最省 token 的路。
 
-**Aider 的 PageRank 方法在特定功能調查上失敗。** 它優化「全域重要的」函式，而不是「和你的任務相關的」函式。在 77K 檔案的 repo 上，session context endpoint 根本沒有出現在 Aider 的 560 行地圖裡。
+如果 task 本身很窄、很 local，而且 touch point 已經很明顯，直接看 code 可能更便宜。
 
-**任何單一方法都無法在模式稽核上達到 100% 覆蓋率。** 最佳工作流程是混合式：graph 縮小搜尋範圍，然後 Codex 做 ~$0.02 的徹底暴力掃描。
+但一旦 task 變成「我要改這裡，而且不可以漏任何 related change」，graph 就會開始回本。
 
-**專案文件有獨特的價值**——程式碼本身無法告訴你的 domain-specific 注意事項和業務邏輯。Graph 的 `Docs:` 欄位自動連結到這些 per-domain 文件。
+## 為什麼我們說它可以 cover 約 95% 傳統 Knowledge Graph 的實際用途
 
----
+這是一個很實務的說法，不是哲學命題。
 
-## 快速上手
+日常 coding workflow 裡，大家真正問的通常是：
 
-以 Claude Code plugin 安裝——一個指令就能加到任何專案：
+- 我要從哪裡開始
+- 還有什麼是 related 的
+- 哪些檔案本來就會一起動
+- 如果我只跟 imports 走，我會漏掉什麼
+- 哪些 tests 或 config surfaces 一定要檢查
+
+這些正正就是 AI Index 在回答的問題。
+
+所以對日常 coding、debug、review、impact analysis 這些工作來說，它通常可以取代大約 `95%` 傳統 knowledge graph 的實際價值。
+
+剩下那大約 `5%`，通常是：
+
+- onboarding 敘事
+- 歷史設計理由
+- 給人類看的 architecture storytelling
+- 要拿去和非寫 code 的人溝通的材料
+
+這些當然還是可能有價值。
+
+只是對一個正在改 code 的 agent 來說，它們通常不是最高槓桿的格式。
+
+## 什麼情況下 AI Index 最好用
+
+適合用 AI Index 的情況：
+
+- repo 中大型
+- task 常常跨多層
+- agent 容易改漏 related edits
+- repo conventions 的重要性和 import edges 一樣高
+- 你重視 blast-radius analysis 和 change completeness
+
+特別適合：
+
+- 有 hidden side effect 的 bug fix
+- 會同時改到 route、service、schema、config、test 的 feature work
+- entry point 很多的大 repo
+- review workflow 裡想知道「其實還應該改哪裡」的場景
+
+## 什麼情況下傳統 Documentation 仍然有價值
+
+傳統 docs 仍然有幫助，如果：
+
+- 新工程師需要先聽故事才敢碰 code
+- 系統有很多 code 看不出來的 business context
+- 你要的是給人看的架構溝通材料，不是給 AI 的導航圖
+- repo 很小，本身直接 sweep 一次就夠
+
+這個 repo 不是在說 human documentation 完全沒用。
+
+它是在說：對 AI-assisted coding 來說，人類導向 documentation 經常不是最應該先維護的主 artifact。
+
+## 好處
+
+- 非 trivial repo 更快定向
+- 減少浪費的 tool calls
+- blast-radius analysis 更穩
+- edit completeness 更高
+- 比 prose-heavy doc system 少重複
+- 比 full knowledge graph 更容易維護
+
+## 不足
+
+- 仍然需要有紀律地更新
+- 如果 sync 沒做，會 drift
+- 不能取代讀 source code
+- 對 onboarding narrative 不如人類文件
+- 小 repo 可能有點 overkill
+- domain boundary 分錯，graph 就會變吵
+
+## 為什麼 Folder 通常比傳統 Documentation 更細
+
+AI Index 只保留 code search 找不到、但 change completeness 很重要的資訊：
+
+- domain boundaries
+- change surfaces
+- non-obvious coupling
+- must-check rules
+- 少量 anchor nodes
+
+它刻意不保留：
+
+- 長篇 feature summary
+- 重複解釋 code behavior 的 prose
+- exhaustive function-by-function 說明
+- 可以靠 search 反推的 inverse relationships
+
+所以通常會出現：
+
+- 字更少
+- 重複更少
+- doc footprint 更小
+- operational signal 對 maintenance cost 的比例更高
+
+## 預設 Layout
+
+```text
+AI_INDEX.md
+AI_INDEX/
+  domain-a.md
+  domain-b.md
+  domain-c.md
+```
+
+Root file 放：
+
+- read order
+- repo-wide rules
+- domain index
+
+Domain file 放：
+
+- scope
+- change surfaces
+- must-check rules
+- critical nodes
+
+## Quick Start
+
+先把它裝成 Claude Code plugin：
 
 ```bash
-# 加入 marketplace
-/plugin add-marketplace https://github.com/ithiria894/claude-code-best-practices
-
-# 安裝
+/plugin add-marketplace https://github.com/ithiria894/AI-Index
 /plugin install codebase-navigator
 ```
 
-安裝後，技能在任何專案都可以使用：
+然後預設從這裡開始：
 
-```
-/codebase-navigator:generate-graph    → 建立 graph
-/codebase-navigator:debug             → 修 bug
-/codebase-navigator:new-feature       → 新增功能
-/codebase-navigator:sync-graph        → 保持 graph 更新
+```text
+/ai-index
 ```
 
-在新 repo 上跑 `/codebase-navigator:generate-graph` 開始使用。之後只需要描述你的任務——Claude 會自動選擇正確的技能。
+常見模式：
 
-**手動安裝**（如果你偏好複製檔案）：參考 [手動安裝指南](docs/manual-setup.md)。
+- `/use-ai-index`：repo 已經有 index
+- `/generate-graph`：從零開始建立
+- `/sync-graph`：做完有意義改動後同步
 
----
+## Bottom Line
 
-## 範本與設定檔
+如果你的問題是「AI 不明白這個 feature 是什麼」，那你應該寫 docs。
 
-| 檔案 | 說明 |
-|---|---|
-| [`scripts/generate-ai-index.mjs`](scripts/generate-ai-index.mjs) | Deterministic AI_INDEX 生成器——掃描 imports，輸出路由清單 |
-| [`templates/AI_INDEX_TEMPLATE.md`](templates/AI_INDEX_TEMPLATE.md) | 完整的 AI_INDEX 格式，含 Connects to 和 Docs 欄位 |
-| [`templates/MEMORY_INDEX_TEMPLATE.md`](templates/MEMORY_INDEX_TEMPLATE.md) | Memory 檔案結構與 frontmatter |
-| [`.claude/settings.json`](.claude/settings.json) | LSP + deny rules + hook 架構 |
+如果你的問題是「AI 改了一個檔案，但漏了另外五個相關檔案」，那你應該建 AI Index。
 
----
-
-## 貢獻
-
-這是一份持續更新的文件，每項最佳實踐都來自實際驗證。
-
-貢獻規則：
-- 每個技巧都必須有來源或第一原理說明
-- 不接受「加上這個就好」而沒有解釋為什麼有效
-- 失敗案例和成功案例一樣有價值
+這就是這個 repo 的整個賭注。

@@ -3,8 +3,6 @@ name: new-feature
 description: Plan and implement a new feature. Finds existing patterns to copy, traces impact on all touch points, implements across layers, then syncs the graph. Use when adding a new feature, category, endpoint, or capability.
 ---
 
-> **[codebase-navigator plugin — new-feature skill]**
-
 # New Feature
 
 Find an existing pattern, copy it across all layers, verify nothing breaks.
@@ -26,9 +24,9 @@ What exactly needs to be added? Extract:
 
 Search for a similar existing feature. Note:
 - Its entry file
-- Its "Connects to" edges (which other domains it touches)
+- Its `change_surfaces`, `must_check`, and important `uses` edges
 - Its test files
-- `Docs:` field — if the domain has linked documentation, **read it first**.
+- Its `must_check` rules and root `Global Rules`
 
 ### Step 1b: Is there an existing pattern to copy?
 
@@ -60,8 +58,8 @@ This is your template. The new feature should follow the same pattern.
 
 When the feature is genuinely new (no similar feature exists in the codebase):
 
-1. **Read architectural docs** — check `Docs:` links in AI_INDEX.md for conventions, naming patterns, layer responsibilities
-2. **Identify which domains the new feature will connect to** — use AI_INDEX.md edges to understand where it fits in the graph
+1. **Read root rules and relevant domain rules** — check `Global Rules` and `must_check` before choosing a structure
+2. **Identify which domains the new feature will connect to** — use the root domain index plus domain `uses` edges and `must_check` rules to understand where it fits in the graph
 3. **Find the closest CONCEPT** (not identical feature) — e.g., "real-time notifications" has no exact match, but "background jobs" or "event emitters" might show how async patterns work in this codebase
 4. **Propose a structure** — which layers need new files? Which existing files need modification? Where does it plug into the existing graph?
 5. **Ask the user** — for brand new patterns, confirm the approach before implementing. Don't assume.
@@ -84,7 +82,7 @@ Files to modify:
 
 ### Step 2: Trace impact on modified files
 
-For each file you're MODIFYING (not creating), run `/trace-impact`:
+For each file you're MODIFYING (not creating), trace impact using `AI_INDEX.md` and the relevant domain files:
 - Will adding this break existing callers?
 - Does a shared enum/registry need updating?
 - Are there tests that assert on the current state?
@@ -108,7 +106,7 @@ At each layer, copy the pattern from the similar feature and adapt.
 ## Phase 4 — Verify and sync
 
 1. Run tests — both existing (nothing broke) and new (feature works)
-2. `/sync-graph` — update AI_INDEX.md with the new domain/connections
+2. Run the `sync-graph` skill if the graph changed
 3. Note in PR: "Pattern copied from [existing feature]. New connections: [list]."
 
 ---

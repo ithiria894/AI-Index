@@ -3,8 +3,6 @@ name: debug
 description: Debug a bug from report to fix. Locates the layer, finds root cause, sweeps for same pattern elsewhere, then fixes. Use when given a bug report, error message, or "X is broken".
 ---
 
-> **[codebase-navigator plugin — debug skill]**
-
 # Debug
 
 Find the layer where the data goes wrong, fix it there, then check if the same pattern exists elsewhere.
@@ -41,7 +39,8 @@ Go with whatever you have. Don't reproduce if you already have an entry point.
 
 Identify which domain the endpoint belongs to. Note:
 - Entry file and search keywords
-- `Docs:` field — if the domain has linked documentation, **read it before tracing code**. Domain docs contain business logic, caveats, and design decisions that code alone won't tell you.
+- Relevant `change_surfaces`
+- Any `must_check` rules that might point to hidden coupling
 
 ### Step 2: Trace the stack
 
@@ -91,14 +90,20 @@ Use AI_INDEX.md to identify which files/directories to scan:
 
 ### Step 2: Exhaustive scan
 
-If the file is large (500+ lines) or the pattern might repeat across many files, hand off to Codex CLI:
+If the file is large (500+ lines) or the pattern might repeat across many files, do a structured repo scan with the search tools available in your environment.
 
 ```bash
-codex exec "Scan [file/directory] for all instances of [pattern].
-For each query/function, output: LINE | FUNCTION | STATUS (OK or MISSING [field])."
+rg -n "[pattern]" [file-or-directory]
 ```
 
-Codex is 10-50x cheaper than Claude for brute-force scanning and catches every instance.
+Do not stop at the first hit. Enumerate every plausible instance and produce a short triage list such as:
+
+```text
+LINE | FUNCTION OR BLOCK | STATUS
+118  | delete_item       | MISSING project_id
+221  | upsert_item       | OK
+377  | bulk_delete       | MISSING project_id
+```
 
 ### Step 3: Triage
 
@@ -118,7 +123,7 @@ Codex is 10-50x cheaper than Claude for brute-force scanning and catches every i
 
 1. Fix all instances found in Phase 3
 2. Run tests
-3. `/sync-graph` — update the graph while you still remember what changed
+3. Run the `sync-graph` skill if the traversal shape changed
 4. Note in the PR: "Pattern sweep done — found N additional instances" or "Pattern sweep not done — [reason]"
 
 ---

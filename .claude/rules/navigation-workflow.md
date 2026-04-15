@@ -1,26 +1,20 @@
 ## Settings
 
-### Codex pattern sweep
+### Exhaustive pattern sweep
 
-When Claude finds a bug, the same pattern often exists in other places. The Codex sweep step hands off to Codex CLI to scan the entire file/directory for every instance.
+When the agent finds a bug, the same pattern often exists in other places. The sweep step should scan the relevant file or directory for every similar instance before calling the fix complete.
 
 **Enabled (default):**
-- After finding root cause, Codex scans for the same pattern everywhere
-- ~$0.02 per scan (Codex uses cheaper models for brute-force work)
-- In our benchmarks, a 3-line bug fix actually had 16 affected locations — Claude found 5, Codex found all 16
+- After finding root cause, run a structured repo scan across the relevant surface
+- Use repo search, LSP, or any available helper agent/tool to enumerate every plausible instance
 - You fix once, ship clean. No "oh wait there's another one" in code review
 
 **Disabled:**
-- Claude still checks nearby code for similar patterns, but won't do an exhaustive scan
+- The agent still checks nearby code for similar patterns, but won't do an exhaustive scan
 - Faster, zero extra cost
 - Risk: you fix the reported bug but miss 2-3 identical bugs in the same file that surface later
 
-Most of the time, leaving it on is worth it — $0.02 to guarantee you didn't miss anything.
-
-To disable:
-```json
-{ "env": { "CODEX_SWEEP": "false" } }
-```
+Most of the time, leaving it on is worth it.
 
 ---
 
@@ -28,9 +22,13 @@ To disable:
 
 These rules apply whenever this repo's skills are installed.
 
+### Default starting point
+
+Run `/ai-index` when you are not sure whether the repo needs graph generation, ordinary graph-guided work, or a post-change sync.
+
 ### When fixing a bug
 
-Run `/debug` — it orchestrates the full workflow: locate entry point → read docs → find root cause → check if it's our code → pattern sweep → fix → sync graph.
+Run `/debug` — it orchestrates the full workflow: locate entry point → read the right graph domains → trace code → find root cause → check if it's our code → pattern sweep → fix → sync graph.
 
 Triggers:
 - User reports a bug, error, or broken behavior
@@ -39,7 +37,7 @@ Triggers:
 
 ### When adding a new feature
 
-Run `/new-feature` — it orchestrates: find existing pattern → read docs → trace impact on touch points → implement → sync graph.
+Run `/new-feature` — it orchestrates: find existing pattern → trace impact on touch points → implement → sync graph.
 
 Triggers:
 - User asks to add a new capability, endpoint, category, or UI panel
@@ -70,4 +68,4 @@ Triggers:
 - After a major refactor that changes module boundaries
 - After merging a large feature branch that restructured src/
 
-This is a full rebuild. For incremental updates, use `/sync-graph` instead.
+This is an AI-first full rebuild. Do not rely on a generator script. For incremental updates, use `/sync-graph` instead.

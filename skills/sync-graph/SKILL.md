@@ -1,131 +1,182 @@
 ---
 name: sync-graph
-description: Update AI_INDEX.md after a feature or bug fix, while Claude still has session memory of what changed. Run immediately after completing work — before /clear.
+description: Update the AI Index after code changes. AI inspects changed files, maps them to domains, updates only affected root/domain entries, and preserves change completeness.
 ---
-
-> **[codebase-navigator plugin — sync-graph skill]**
 
 # Sync Graph
 
-Update AI_INDEX.md to reflect what just changed in this session. Run this *before* `/clear` — Claude still knows which files were touched and why.
+Update the AI Index after finishing code changes.
 
-This is a surgical update, not a full rebuild. Only touch affected domains.
+This is a surgical sync. Do not rebuild the entire graph unless the repo structure changed enough to justify the `generate-graph` skill.
+
+---
+
+## Goal
+
+Keep the graph accurate with minimal churn.
+
+The sync should preserve:
+
+- correct domain boundaries
+- correct change surfaces
+- correct important edges
+- correct repo rules / must-check rules
 
 ---
 
 ## Rules
 
-- Do not rewrite the whole index. Only update entries for affected domains.
-- Every "Connects to" must come from an actual import/call you read or added.
-- If a change is internal to a domain (no new imports, no new exports), the index does not change.
-- If uncertain whether an entry needs updating, check git diff, then decide.
+- Update only affected files in `AI_INDEX.md` and `AI_INDEX/<domain>.md`.
+- If no traversal shape changed, do not churn the graph.
+- If a change introduced a new non-obvious repo rule, record it.
+- If a change removed a surface or node, remove it from the graph.
+- Do not turn sync into documentation writing.
 
 ---
 
-## Step 1 — Identify what changed this session
+## Step 1 — Identify changed files
 
-Recall from session context OR run:
+Use session context first. If needed, confirm with:
 
 ```bash
 git diff --name-only
 git diff --name-only --cached
 ```
 
-Group changed files by domain (first-level directory or logical module).
+Group changed files by domain candidate.
 
-For each changed file, answer:
-- Did this file add or remove an **export**? (new public function, class, or constant)
-- Did this file add or remove an **import from another domain**? (new cross-domain edge)
-- Was this file **created** or **deleted**? (domain structure changed)
-- Was the **entry file** affected? (the file listed under `Entry:` in the index)
+Also note if any changed file affects:
 
-If all answers are no → this domain's index entry is unchanged. Skip it.
-
----
-
-## Step 2 — For each domain that changed, update its entry
-
-Read the current AI_INDEX.md entry for the affected domain. Then apply the minimum change:
-
-**If a new export was added:**
-```
-Search: symbol1, symbol2, symbol3, NEW_SYMBOL
-```
-
-**If a new import was added (new cross-domain connection):**
-```
-Connects to:
-  - Existing domain — via existing_fn() in file.py
-  - New domain — via new_fn() in file.py   ← add this line
-```
-
-**If an import was removed:**
-Remove the corresponding "Connects to" line.
-
-**If the entry file moved or was renamed:**
-```
-Entry: `new/path/to/entry.py`
-```
-
-**If a new domain was added** (new top-level directory or new logical module):
-Add a full new entry block:
-```markdown
-### New domain name
-- Entry: `src/new_domain/entry.py`
-- Search: ExportedSymbol1, ExportedSymbol2
-- Tests: `tests/test_new_domain.py`
-- Connects to:
-  - Other domain — via function() in file.py
-```
-
-**If a domain was deleted:**
-Remove its entry block entirely.
+- repo entry points
+- route config sync
+- migration needs
+- queue / ETL wiring
+- schema shape
+- tests
+- global repo rules
 
 ---
 
-## Step 3 — Verify your edits
+## Step 2 — Decide whether the graph must change
 
-Before writing:
+The graph should change if the session added, removed, or changed any of these:
 
-- [ ] Every edited `Entry:` file actually exists
-- [ ] Every edited `Tests:` file actually exists
-- [ ] Every new "Connects to" line comes from an actual import you added this session
-- [ ] No entry exceeds 8 lines
-- [ ] Total index still under 250 lines
-- [ ] No explanations added — only pointers
+- a domain boundary
+- a major owned path
+- a public entry point
+- a critical node
+- a cross-domain edge worth following
+- a config that must change with code
+- a must-check rule
+- a test surface worth keeping in the graph
 
----
+The graph usually should **not** change if:
 
-## Step 4 — Write the update
-
-Edit AI_INDEX.md in place. Do not regenerate the whole file.
-
-After writing, show a summary:
-
-```
-Synced AI_INDEX.md:
-- Updated: [domain names whose entries changed]
-- Added: [new domain names]
-- Removed: [deleted domain names]
-- Unchanged: [domains touched in session but index didn't need updating]
-```
+- logic changed inside an existing node without altering traversal shape
+- only tests changed and they do not change the owned test surface
+- a private helper changed
 
 ---
 
-## When this skill does NOT apply
+## Step 3 — Update the root index if needed
 
-- You only changed internal logic (no new exports, no new imports between domains) → skip
-- You only changed tests → skip, unless you added a test for a domain not yet listed under `Tests:`
-- You added a dependency to an external package (not a local domain) → skip
+Update `AI_INDEX.md` when:
+
+- a new domain was added
+- a domain was removed or renamed
+- `Owns` or `Open When` changed materially
+- a new repo-wide rule became necessary
+- a repo-wide rule is no longer true
+
+Do not rewrite unaffected domain rows.
 
 ---
 
-## Tip: chain with trace-impact
+## Step 4 — Update affected domain files
 
-This skill pairs with `/trace-impact`:
+For each affected domain:
 
-```
-Before work:  /trace-impact  — understand blast radius
-Do the work
-After work:   /sync-graph    — update the map to reflect what changed
-```
+1. Update `owns` if the owned area changed
+2. Update `change_surfaces` if new paths or categories were added/removed
+3. Update `must_check` if the change introduced or removed non-obvious coupling
+4. Update `## Nodes` only if traversal anchors changed
+
+Examples of node updates:
+
+- new router/service/job/model_utils added
+- important edge added or removed
+- hot path changed
+- node renamed or deleted
+
+Examples of change-surface updates:
+
+- new route directory
+- new schema package
+- new GraphQL service area
+- new migration keyword family
+- new test directory that now owns the domain's regression surface
+
+---
+
+## Step 5 — Special cases
+
+### Route changes
+
+If routes changed, check whether:
+
+- route-linked config files must also be updated
+- auth/rate-limit/permission metadata belongs in `must_check`
+- the root `Global Rules` already cover this, or need refinement
+
+### Model/schema changes
+
+If ORM or transport shape changed, check whether:
+
+- migration search terms changed
+- a new schema/model path belongs in the change surface
+- `must_check` should mention downstream consumers
+
+### Background job / ETL changes
+
+If a queue, worker, cron, or ETL entry changed, update:
+
+- `jobs_or_etl`
+- relevant configs
+- the hot nodes if request or processing flow changed
+
+---
+
+## Step 6 — Validate
+
+Before finishing:
+
+- Every edited path exists
+- Every edited `tests` path exists
+- Every added `[[wikilink]]` resolves
+- The root index still matches the domain files
+- No deleted node is still referenced
+- No new non-obvious coupling was forgotten
+
+---
+
+## Output summary
+
+After syncing, summarize:
+
+- domains updated
+- domains added
+- domains removed
+- whether root rules changed
+
+---
+
+## When to use this skill
+
+Use this skill after:
+
+- feature work
+- bug fixes
+- refactors that change traversal shape
+- new routes, jobs, configs, or schema/model surfaces
+
+Skip it for tiny internal edits that do not affect how an AI should navigate the repo.
