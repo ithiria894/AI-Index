@@ -459,11 +459,14 @@ For AI-assisted coding, docs are often the wrong primary artifact.
 This repo packages the methodology in a Claude Code-friendly form:
 
 - [`docs/AI_INDEX_SPEC.md`](docs/AI_INDEX_SPEC.md)
+- [`docs/best-practices.md`](docs/best-practices.md)
 - [`templates/AI_INDEX_TEMPLATE.md`](templates/AI_INDEX_TEMPLATE.md)
 - [`skills/ai-index/SKILL.md`](skills/ai-index/SKILL.md)
 - [`skills/use-ai-index/SKILL.md`](skills/use-ai-index/SKILL.md)
 - [`skills/generate-graph/SKILL.md`](skills/generate-graph/SKILL.md)
 - [`skills/sync-graph/SKILL.md`](skills/sync-graph/SKILL.md)
+- [`skills/debug/SKILL.md`](skills/debug/SKILL.md)
+- [`skills/new-feature/SKILL.md`](skills/new-feature/SKILL.md)
 
 ## Quick Start
 
@@ -487,6 +490,8 @@ Common modes:
 - `/use-ai-index` when the repo already has an index
 - `/generate-graph` when starting from zero
 - `/sync-graph` after meaningful code changes
+- `/debug` for bug work that needs root-cause tracing plus pattern sweep
+- `/new-feature` for feature work that needs end-to-end impact tracing
 
 ## Bottom Line
 

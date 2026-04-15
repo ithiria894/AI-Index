@@ -1,5 +1,5 @@
 {
-  "name": "codebase-navigator-marketplace",
+  "name": "ai-index-marketplace",
   "marketplaceVersion": "1",
   "owner": {
     "name": "ithiria894",
@@ -8,11 +8,13 @@
   "plugins": [
     {
       "name": "codebase-navigator",
-      "description": "Turn your repo into a graph. BFS + LSP to navigate it. generate-graph, investigate-module, trace-impact, sync-graph.",
-      "version": "0.1.0",
+      "description": "AI-maintained repository graph for change-complete navigation. Includes ai-index, use-ai-index, generate-graph, sync-graph, debug, and new-feature skills.",
+      "version": "0.2.1",
       "source": {
-        "source": "github",
-        "repo": "ithiria894/claude-code-best-practices"
+        "type": "git",
+        "repository": "https://github.com/ithiria894/AI-Index",
+        "ref": "main",
+        "path": "."
       },
       "author": {
         "name": "ithiria894",

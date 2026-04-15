@@ -513,11 +513,14 @@ AI Index 不是魔法。
 這個 repo 把整套方法整理成 Claude Code 比較好吃的形式：
 
 - [`docs/AI_INDEX_SPEC.md`](docs/AI_INDEX_SPEC.md)
+- [`docs/best-practices.md`](docs/best-practices.md)
 - [`templates/AI_INDEX_TEMPLATE.md`](templates/AI_INDEX_TEMPLATE.md)
 - [`skills/ai-index/SKILL.md`](skills/ai-index/SKILL.md)
 - [`skills/use-ai-index/SKILL.md`](skills/use-ai-index/SKILL.md)
 - [`skills/generate-graph/SKILL.md`](skills/generate-graph/SKILL.md)
 - [`skills/sync-graph/SKILL.md`](skills/sync-graph/SKILL.md)
+- [`skills/debug/SKILL.md`](skills/debug/SKILL.md)
+- [`skills/new-feature/SKILL.md`](skills/new-feature/SKILL.md)
 
 ## Quick Start
 
@@ -541,6 +544,8 @@ AI Index 不是魔法。
 - `/use-ai-index`：repo 已經有 index
 - `/generate-graph`：從零開始建
 - `/sync-graph`：做完有意義改動後同步
+- `/debug`：debug / root cause / pattern sweep
+- `/new-feature`：加新功能，順手 trace 影響面
 
 ## 最後一句話
 
