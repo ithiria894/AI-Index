@@ -514,6 +514,7 @@ AI Index 不是魔法。
 
 - [`docs/AI_INDEX_SPEC.md`](docs/AI_INDEX_SPEC.md)
 - [`docs/best-practices.md`](docs/best-practices.md)
+- [`research/`](research/)
 - [`templates/AI_INDEX_TEMPLATE.md`](templates/AI_INDEX_TEMPLATE.md)
 - [`skills/ai-index/SKILL.md`](skills/ai-index/SKILL.md)
 - [`skills/use-ai-index/SKILL.md`](skills/use-ai-index/SKILL.md)
