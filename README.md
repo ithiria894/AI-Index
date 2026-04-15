@@ -1,98 +1,125 @@
 # AI Index
 
-> Navigation infrastructure for coding agents.
+> A floor plan and wiring map for coding agents.
 
 [繁體中文](README.zh-TW.md)
 
-Most AI coding failures are not reasoning failures.
+## In Plain English
 
-They are navigation failures.
+When AI fails on a real repo, it is usually not because it is too dumb to read code.
 
-The model can read code, but it still has to figure out:
+It is more like this:
+
+You send a technician into a huge building and say, "Fix the leak."
+
+The technician is smart. The problem is that nobody gave them:
+
+- the floor plan
+- the shutoff-valve map
+- the list of rooms that share the same pipe
+- the note that says "if you touch this line, also check the pressure sensor downstairs"
+
+That is what `AI Index` is for.
+
+It is not the building manual.
+It is not the tourist guide.
+It is the maintenance map.
+
+## The Problem This Repo Solves
+
+AI can already read source code.
+
+What it still struggles with on medium and large repos is navigation:
 
 - where to start
 - which files belong to the same change surface
-- which conventions do not show up in imports
-- what else must change before the edit is actually complete
+- which repo rules do not show up in imports
+- what else needs to move before the edit is actually complete
 
-That is the problem this repo is trying to solve.
+Without a navigation layer, the agent often does something that looks correct locally but is incomplete globally.
 
-## Thesis
+That is why a lot of AI-generated fixes feel like "half the job."
 
-Traditional documentation is optimized for humans.
+## What AI Index Actually Is
 
-An AI coding agent does not need a prose explanation of what every feature does. It can read the code. What it usually lacks is a reliable map:
+AI Index is an AI-maintained repository graph.
 
-- which domain file to open first
-- which layers belong together
-- which configs, jobs, tests, schemas, or migrations are easy to forget
-- which repo-specific rules change the blast radius of an edit
+Its job is simple:
 
-An `AI Index` is that map.
+- tell the agent which domain to open first
+- show the main change surfaces inside that domain
+- record the non-obvious "also check this" rules
+- point back to real files, not prose summaries
 
-It is not a generated symbol dump.
-It is not a call graph.
-It is not a human knowledge base.
+The code is still the source of truth.
 
-It is an AI-maintained repository graph for change-complete navigation.
+The index is just the map that helps the agent reach the right code faster and more completely.
 
-## What This Repo Contains
+## The Fastest Way To Understand The Difference
 
-This repo packages the methodology in a Claude Code-friendly shape:
+Think about these three tools:
 
-- an AI Index spec
-- a minimal template
-- skills for `use`, `generate`, and `sync`
+### 1. Raw Code Search
 
-Main files:
+Raw search is like walking around a building with a flashlight.
 
-- [`docs/AI_INDEX_SPEC.md`](docs/AI_INDEX_SPEC.md)
-- [`templates/AI_INDEX_TEMPLATE.md`](templates/AI_INDEX_TEMPLATE.md)
-- [`skills/ai-index/SKILL.md`](skills/ai-index/SKILL.md)
-- [`skills/use-ai-index/SKILL.md`](skills/use-ai-index/SKILL.md)
-- [`skills/generate-graph/SKILL.md`](skills/generate-graph/SKILL.md)
-- [`skills/sync-graph/SKILL.md`](skills/sync-graph/SKILL.md)
+You can absolutely find the right room.
+But you may open five wrong doors first, and you may still miss the valve room in the basement.
 
-## The Core Idea
+Raw search is great for:
 
-The AI Index sits between raw code search and traditional documentation.
+- local truth
+- symbol lookup
+- reading exact implementation
 
-Raw code search is strong at local truth:
+Raw search is weak at:
 
-- what this file does
-- what this function calls
-- where this symbol is defined
+- knowing which layers move together
+- knowing where the blast radius really ends
+- catching repo-specific coupling
 
-But raw search is weak at repo-level completeness:
+### 2. Traditional Docs / Knowledge Graph
 
-- which sibling layers must also be inspected
-- which ownership boundary a task belongs to
-- which conventions are real even when the imports do not show them
+Traditional docs are like a guidebook or onboarding handbook.
 
-Traditional docs or knowledge graphs are strong at narrative context:
+They tell you:
 
-- what the subsystem is for
-- how people talk about it
-- what the high-level flow looks like
+- what the building is for
+- how the different floors are supposed to work
+- what a human should understand before going deeper
 
-But they are usually weak at edit completeness:
+That is useful for:
 
-- they often do not cover enough live code surface
-- they go stale
-- they are expensive to maintain
-- they still leave the agent to rediscover the real touch points
+- onboarding
+- architecture explanation
+- human communication
 
-The AI Index is designed for the middle:
+But it is usually not the best tool for "change this code without missing anything related."
 
-- more structure than prose docs
-- more repo-awareness than a flat index
-- less duplication than a human documentation system
+### 3. AI Index
 
-## Data Structure: Tree vs Graph
+AI Index is the operations map.
 
-This is the most important design difference.
+It tells the agent:
 
-### Traditional Knowledge Graph / Documentation Tree
+- start from this area
+- these routes, services, models, jobs, configs, and tests belong together
+- if you touch this, also inspect these other surfaces
+- here are the actual files that matter
+
+That is why it is much better for:
+
+- bug fixes
+- feature work
+- impact analysis
+- reviews
+- avoiding partial edits
+
+## Tree Vs Graph
+
+This is the real structural difference.
+
+### Documentation Tree
 
 Typical shape:
 
@@ -103,15 +130,12 @@ index
       -> code pointers
 ```
 
-This is still mostly a document tree.
+That is a reading path.
 
-It helps answer:
+It answers:
 
 - "What is this feature?"
-- "How does this system work?"
 - "What should a human read next?"
-
-It is good for onboarding and architecture tours.
 
 ### AI Index Graph
 
@@ -123,227 +147,22 @@ AI_INDEX.md
     -> change surfaces
     -> must_check rules
     -> critical nodes
-    -> verified edges
+    -> direct code paths
 ```
 
-This is a traversal graph.
+That is an action path.
 
-It helps answer:
+It answers:
 
-- "Which domain should I open first?"
-- "If I change this route or service, what else should I inspect?"
-- "Which files belong to the same change surface?"
+- "Where do I start?"
+- "What else breaks with this?"
+- "What should I inspect before I claim the change is done?"
 
-It is good for implementation, debugging, impact analysis, and keeping edits complete.
+If the old knowledge graph is a guidebook, AI Index is the train map plus the maintenance panel.
 
-## The Methodology
+## What Lives Inside An AI Index
 
-The workflow has four parts.
-
-### 1. Use
-
-When a repo already has an AI Index:
-
-- read `AI_INDEX.md`
-- pick the smallest relevant set of domains
-- open only those domain files
-- inspect the listed change surfaces
-- follow `must_check` before editing
-
-This prevents the agent from starting blind and wandering through the repo.
-
-### 2. Generate
-
-When a repo does not have an AI Index yet:
-
-- inspect repo structure
-- identify real domains
-- map the major change surfaces for each domain
-- record only high-value nodes and verified edges
-- keep human prose out
-
-The point is not to inventory every function.
-
-The point is to create a graph that makes future changes more complete.
-
-### 3. Sync
-
-After meaningful edits:
-
-- look at the changed files
-- map them back to affected domains
-- update the domain file
-- update root rules only if the change affects repo-wide behavior
-- re-check paths and links
-
-This keeps the graph useful without rebuilding everything.
-
-### 4. Validate
-
-Before trusting the index:
-
-- confirm paths still exist
-- confirm `[[wikilink]]` references still resolve
-- confirm domains still match real repo boundaries
-- confirm the graph still reflects current change surfaces
-
-## Why AI Builds the Index
-
-This repo used to lean more heavily on a generator script.
-
-That turned out to be the wrong center of gravity.
-
-A script is good at syntax extraction.
-
-It is not good at deciding:
-
-- what the real domain boundary is
-- which edges matter for change completeness
-- which conventions are invisible from imports
-- which nodes are worth keeping
-- which `must_check` rules are the difference between a correct edit and a partial edit
-
-For a first-pass graph, AI judgment is usually worth more than deterministic coverage.
-
-## Benchmark Summary
-
-The public benchmark write-up that motivated this work is here:
-
-https://dev.to/ithiria894/the-bottleneck-for-ai-coding-assistants-isnt-intelligence-its-navigation-2p30
-
-Across eight benchmark tasks, the pattern was consistent:
-
-- the graph usually reduced tool calls
-- the graph usually reduced token burn on cross-surface tasks
-- the graph improved change completeness most clearly when the task touched multiple layers
-
-### Benchmark Table
-
-| Test | Graph | Comparison | What changed |
-|---|---:|---:|---|
-| 1 | `14K` tokens / `10` tool calls | `14K` / `12` | same token cost, fewer steps, better cascade awareness |
-| 2 | `5K` / `4` | `5.1K` / `5` | slightly cheaper, fewer steps |
-| 3 | `11K` / `10` | `14K` / `14` | lower cost, cleaner traversal |
-| 4 | `5K` / `5` | `6K` / `8` | lower cost, fewer tool calls |
-| 5 | `16K` / `12` | `22K` / `18` | lower cost and higher edit completeness |
-| 6 | `48K` / `14` | `72K` / `26` | large-repo navigation win |
-| 7 | `55K` / `18` | `82K` / `33` | large-repo navigation win |
-| 8 | `61K` / `17` | docs: `64K` / `35`, no-map: `47K` / `30` | graph used more tokens than a narrow no-map run, but still cut tool churn and beat prose-doc flow |
-
-### What the numbers say
-
-- Median token savings versus the no-map baseline: about `21%`
-- Average tool-call reduction versus the no-map baseline: about `34%`
-- Biggest gains showed up when a task crossed routers, services, schemas, tests, configs, jobs, or migrations
-
-The important nuance:
-
-The AI Index is not guaranteed to be the absolute lowest-token path on every tiny task.
-
-If the task is narrow, local, and already obvious, jumping straight into code can be cheaper.
-
-But as soon as the task becomes "change this without missing anything related," the graph starts to pay for itself.
-
-## Why We Say It Can Cover About 95% Of What Teams Actually Used Knowledge Graphs For
-
-This is a practical claim, not a philosophical one.
-
-In day-to-day coding work, the questions people actually ask are usually:
-
-- where do I start
-- what else is related
-- which files move together
-- what will I forget if I only follow imports
-- what tests or config surfaces should I inspect
-
-That is exactly what the AI Index is built to answer.
-
-For those practical workflows, it can usually replace roughly `95%` of the value people were getting from a traditional knowledge graph.
-
-What remains in the missing `5%`:
-
-- rich onboarding narrative
-- historical design rationale
-- architecture storytelling for humans
-- communication material you want to forward to people who are not in the code
-
-Those things can still matter.
-
-They are just not the highest-leverage format for a coding agent trying to make a correct edit.
-
-## When AI Index Works Best
-
-Use an AI Index when:
-
-- the repo is medium or large
-- tasks often cross multiple layers
-- agents frequently miss related edits
-- repo conventions matter as much as imports
-- you care about blast-radius analysis and change completeness
-
-It is especially good for:
-
-- bug fixes with hidden side effects
-- feature work that touches route, service, schema, config, and tests together
-- large repos with many entry points
-- review workflows where you want to check what else should have changed
-
-## When Traditional Documentation Still Helps
-
-Traditional docs still help when:
-
-- a new engineer needs the story before touching code
-- the system has difficult business context that is not visible in code
-- you need architecture communication for humans, not just navigation for AI
-- the repo is tiny and the codebase is already easy to sweep directly
-
-This repo is not arguing that human documentation has zero value.
-
-It is arguing that human documentation is often the wrong primary artifact for AI-assisted coding work.
-
-## Pros
-
-- faster orientation on non-trivial repos
-- fewer wasted tool calls
-- better blast-radius analysis
-- better odds of complete edits
-- lower duplication than prose-heavy doc systems
-- easier to keep operational than a full knowledge graph
-
-## Cons
-
-- still requires disciplined maintenance
-- can drift if updates are skipped
-- not a replacement for reading source
-- weaker than human docs for onboarding narrative
-- can be overkill for very small repos
-- depends on good domain boundaries; bad boundaries make the graph noisy
-
-## Why The Folder Usually Ends Up Smaller Than Traditional Docs
-
-The AI Index keeps only what code search misses:
-
-- domain boundaries
-- change surfaces
-- non-obvious coupling
-- must-check rules
-- a small number of anchor nodes
-
-It deliberately avoids:
-
-- long feature summaries
-- repeated explanations of code behavior
-- exhaustive function-by-function prose
-- mirrored inverse relationships that can be derived from search
-
-That usually means:
-
-- fewer words
-- less repetition
-- smaller doc footprint
-- higher ratio of operational signal to maintenance cost
-
-## Default Layout
+The default layout is:
 
 ```text
 AI_INDEX.md
@@ -353,18 +172,216 @@ AI_INDEX/
   domain-c.md
 ```
 
-Root file:
+`AI_INDEX.md` is the front desk map:
 
 - read order
 - repo-wide rules
 - domain index
 
-Domain file:
+Each domain file is the local maintenance sheet:
 
-- scope
-- change surfaces
-- must-check rules
-- critical nodes
+- what this domain owns
+- what the important change surfaces are
+- what else must be checked
+- which nodes are worth following
+
+This is deliberately much smaller than a full documentation system.
+
+It keeps only the things code search does not tell you fast enough.
+
+## The Workflow
+
+There are four parts.
+
+### 1. Use
+
+If the repo already has an AI Index:
+
+- read `AI_INDEX.md`
+- open only the relevant domains
+- inspect the listed change surfaces
+- follow `must_check`
+- then read real code and edit
+
+### 2. Generate
+
+If the repo has no AI Index yet:
+
+- inspect the repo
+- find the real domains
+- map the main change surfaces
+- keep only high-value nodes
+- avoid human-style prose
+
+The goal is not "document everything."
+
+The goal is "make future edits harder to miss."
+
+### 3. Sync
+
+After meaningful code changes:
+
+- look at changed files
+- map them back to affected domains
+- update those domain files
+- update root rules only if the change is repo-wide
+
+### 4. Validate
+
+Before trusting the graph:
+
+- make sure file paths still exist
+- make sure links still resolve
+- make sure domain boundaries still make sense
+
+## Why AI, Not A Script, Builds It
+
+A script is good at extracting syntax.
+
+It is bad at judgment.
+
+For example, a script is not very good at deciding:
+
+- where one domain really ends and another begins
+- which coupling matters in practice
+- which rules are invisible from imports
+- which nodes are important enough to keep
+
+That is why this repo moved away from "generate everything with a script."
+
+For AI Index, the expensive part is not parsing files.
+
+It is deciding what is actually worth remembering.
+
+## Benchmarks
+
+The public benchmark write-up is here:
+
+https://dev.to/ithiria894/the-bottleneck-for-ai-coding-assistants-isnt-intelligence-its-navigation-2p30
+
+These tests were not trying to prove that a graph always wins every tiny task.
+
+They were testing a more practical question:
+
+`Does the agent find the whole change surface with less wandering?`
+
+### Headline Results
+
+- Median token savings versus the no-map baseline: about `21%`
+- Average tool-call reduction versus the no-map baseline: about `34%`
+- Biggest gains showed up when a task crossed routes, services, schemas, configs, jobs, tests, or multiple repos
+
+### Representative Results
+
+| Scenario | Graph | No map / other flow | What changed |
+|---|---:|---:|---|
+| Bug fix, small repo | `14K` tokens / `10` tool calls | `14K` / `12` | same token cost, fewer steps, better cascade awareness |
+| New feature planning, small repo | `11K` / `10` | `14K` / `14` | less wandering, cleaner impact sweep |
+| Missing feature flag, large repo | `48K` / `14` | `72K` / `26` | graph got the agent into the right area much faster |
+| Cross-repo investigation, large repo | `55K` / `18` | `82K` / `33` | graph found the wiring gap, not just the obvious endpoint |
+
+### What The Numbers Mean
+
+AI Index is not magic.
+
+If the task is tiny, local, and the right file is obvious, jumping straight into code can still be cheaper.
+
+But once the task becomes:
+
+- "change this without missing related edits"
+- "trace the real blast radius"
+- "figure out which layers move together"
+
+the graph starts to pay for itself.
+
+## Why We Say AI Index Covers About 95% Of What Teams Actually Used Knowledge Graphs For
+
+This is a workflow claim, not a literary claim.
+
+In everyday engineering work, the useful questions are usually:
+
+- where do I start
+- what else is tied to this
+- which files move together
+- what will I miss if I only follow imports
+- what tests, jobs, configs, or migrations should I inspect
+
+That is exactly what AI Index is built to answer.
+
+For those day-to-day coding workflows, it can usually replace about `95%` of the value teams were actually getting from a traditional knowledge graph.
+
+The remaining `5%` is mostly:
+
+- onboarding narrative
+- architecture storytelling
+- historical design rationale
+- communication material for humans
+
+Those still matter sometimes.
+
+They are just not the highest-leverage artifact for an agent that is trying to make a correct change.
+
+## When To Use AI Index
+
+AI Index is most useful when:
+
+- the repo is medium or large
+- tasks often cross layers
+- AI keeps missing related edits
+- repo conventions matter as much as imports
+- you care about blast-radius analysis
+
+It is especially useful for:
+
+- bug fixes with side effects
+- feature work that touches multiple layers
+- code review
+- cross-repo tracing
+- schema, config, migration, or job changes
+
+## When Traditional Documentation Still Helps
+
+Traditional docs are still worth it when:
+
+- a new engineer needs the story first
+- the system has heavy business context not visible in code
+- you need architecture explanation for humans
+- the repo is tiny and easy to sweep directly
+
+The point is not "docs are useless."
+
+The point is:
+
+For AI-assisted coding, docs are often the wrong primary artifact.
+
+## Pros
+
+- faster orientation
+- fewer wasted tool calls
+- better impact analysis
+- fewer partial edits
+- less duplication than prose-heavy docs
+- lower maintenance cost than a full knowledge graph
+
+## Cons
+
+- still needs maintenance
+- can drift if sync is skipped
+- cannot replace reading source
+- weaker than human docs for onboarding narrative
+- can be overkill for very small repos
+- bad domain boundaries make the graph noisy
+
+## What This Repo Provides
+
+This repo packages the methodology in a Claude Code-friendly form:
+
+- [`docs/AI_INDEX_SPEC.md`](docs/AI_INDEX_SPEC.md)
+- [`templates/AI_INDEX_TEMPLATE.md`](templates/AI_INDEX_TEMPLATE.md)
+- [`skills/ai-index/SKILL.md`](skills/ai-index/SKILL.md)
+- [`skills/use-ai-index/SKILL.md`](skills/use-ai-index/SKILL.md)
+- [`skills/generate-graph/SKILL.md`](skills/generate-graph/SKILL.md)
+- [`skills/sync-graph/SKILL.md`](skills/sync-graph/SKILL.md)
 
 ## Quick Start
 
@@ -389,8 +406,14 @@ Common modes:
 
 ## Bottom Line
 
-If your problem is "the AI does not understand the feature," write docs.
+If your problem is:
 
-If your problem is "the AI changes one file and misses five related ones," build an AI Index.
+`The AI does not understand what this feature is`
 
-That is the whole bet behind this repo.
+then write docs.
+
+If your problem is:
+
+`The AI changed one file and forgot the other five`
+
+then build an AI Index.
