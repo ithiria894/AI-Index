@@ -15,6 +15,7 @@
 - Add repo-wide change rules here.
 - Keep them operational and terse.
 - Only include rules that affect multiple domains or the whole repo.
+- Do not restate code behavior here. Code remains the single source of truth.
 
 ## Domain Index
 
@@ -74,4 +75,5 @@
 - Change surfaces are mandatory.
 - Nodes are selective, not exhaustive.
 - Do not write human-oriented explanations.
+- Do not paraphrase implementation behavior into prose. Point the agent to code instead.
 - Do not add `used_by`; derive inverse edges from `uses`.

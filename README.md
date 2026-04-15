@@ -86,7 +86,7 @@ Its job is simple:
 - record the non-obvious "also check this" rules
 - point back to real files, not prose summaries
 
-The code is still the source of truth.
+The code is still the single source of truth.
 
 The index is just the map that helps the agent reach the right code faster and more completely.
 
@@ -106,6 +106,8 @@ If the agent wants to know what a function does, it should read the function.
 
 The map tells the agent where to look.
 The code tells the agent what is true.
+
+That is why AI Index is navigation-only by design.
 
 That keeps the graph lighter, and it avoids one of the most common failure modes of knowledge graphs and traditional docs:
 

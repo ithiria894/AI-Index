@@ -12,7 +12,7 @@ It is a structured, AI-maintained map that answers three questions fast:
 2. If I change this, what else must I inspect?
 3. Which files, layers, and rules belong to the same change surface?
 
-The code remains the source of truth. The AI Index is the traversal layer.
+The code remains the single source of truth. The AI Index is the traversal layer.
 
 ---
 
@@ -42,8 +42,9 @@ The new design is:
 1. **AI only.**
    Write for an agent that can read code, grep, and follow paths. Do not spend tokens on explanations humans would want.
 
-2. **Code is truth.**
+2. **Code is the single source of truth.**
    Never restate code behavior in prose when a file path or edge is enough.
+   If an agent needs to know what a function does, it should read the function.
 
 3. **Surfaces before symbols.**
    For change completeness, `routes`, `services`, `models`, `model_utils`, `jobs`, `tests`, `configs`, and `migration search terms` matter more than exhaustive function lists.
@@ -169,6 +170,7 @@ Format:
 - `Global Rules` must only contain rules that affect multiple domains or the whole repo.
 - `Repository root` is optional when the index lives inside the repo; include it when the index is stored elsewhere.
 - Keep the root file short enough to read in one pass.
+- The root file must never become a prose explanation of system behavior. It routes the agent to code; it does not replace code.
 
 ---
 

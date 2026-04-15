@@ -98,7 +98,7 @@ AI 其實已經很會讀 code 了。
 - 記下那些不容易從 code 直接看出來的「這裡改了，另外那邊也要看」規則
 - 把 agent 直接帶回真正的 source code，而不是繞在大段 prose 裡
 
-code 仍然是 source of truth。
+code 仍然係唯一嘅 source of truth。
 
 AI Index 不是要取代 code。
 
@@ -130,6 +130,8 @@ AI Index 只做導航：
 
 - 地圖只係話你應該去邊
 - 真正話畀你知「發生緊乜」嘅，永遠係 code
+
+所以 AI Index 由設計開始就係 `navigation-only`。
 
 咁做好處係兩個：
 
