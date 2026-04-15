@@ -474,6 +474,8 @@ Install as a Claude Code plugin:
 /plugin install codebase-navigator
 ```
 
+This release is a Claude Code plugin made of skills and docs. It is not a standalone MCP server.
+
 Then start with:
 
 ```text

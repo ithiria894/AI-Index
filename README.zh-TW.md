@@ -528,6 +528,8 @@ AI Index 不是魔法。
 /plugin install codebase-navigator
 ```
 
+而家呢個 release 係一個 Claude Code plugin，入面主要係 skills 同文檔，唔係獨立嘅 MCP server。
+
 然後一般從這裡開始：
 
 ```text
