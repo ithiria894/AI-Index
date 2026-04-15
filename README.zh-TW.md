@@ -373,7 +373,7 @@ script 很會做一件事：
 - 哪些規則 import 根本看不出來
 - 哪些 nodes 值得留下來
 
-所以這個 repo 才慢慢從「先寫個 generator script」轉去「讓 AI 來 build 第一版 graph」。
+所以現在這個 repo 直接採用 AI-first workflow：讓 AI 自己 inspect repo，判斷 domain、change surface 跟 must-check，然後 build 第一版 graph。
 
 因為 AI Index 最貴的地方，其實不是 parsing。
 
