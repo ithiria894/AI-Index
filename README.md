@@ -58,6 +58,7 @@ That is what `AI Index` is for.
 It is not the building manual.
 It is not the tourist guide.
 It is the maintenance map.
+It is the subway map you glance at before you choose a line.
 
 ## The Problem This Repo Solves
 
@@ -88,6 +89,30 @@ Its job is simple:
 The code is still the source of truth.
 
 The index is just the map that helps the agent reach the right code faster and more completely.
+
+## Why Single Source Of Truth Matters
+
+This is one of the design choices we care about most.
+
+A lot of AI mistakes do not start with bad code reading.
+
+They start when the model reads human-written documentation, treats it as truth, and never double-checks the actual implementation.
+
+If that prose is stale, the model inherits the stale mental model too.
+
+That is why AI Index does not try to explain what every function does.
+
+If the agent wants to know what a function does, it should read the function.
+
+The map tells the agent where to look.
+The code tells the agent what is true.
+
+That keeps the graph lighter, and it avoids one of the most common failure modes of knowledge graphs and traditional docs:
+
+- the code changed
+- the prose did not
+- the AI trusted the prose
+- the edit started from the wrong mental model
 
 ## The Fastest Way To Understand The Difference
 
@@ -129,6 +154,11 @@ That is useful for:
 - human communication
 
 But it is usually not the best tool for "change this code without missing anything related."
+
+It is the difference between:
+
+- a booklet that explains how the city is organized
+- a train map that tells you which line to take right now
 
 ### 3. AI Index
 

@@ -66,6 +66,7 @@
 它不是建築物介紹手冊。
 它不是導覽地圖。
 它是維修地圖。
+你可以當佢係你上車前會先望一眼嗰張東京地鐵圖。
 
 ## 這個 repo 到底想解決什麼
 
@@ -102,6 +103,38 @@ code 仍然是 source of truth。
 AI Index 不是要取代 code。
 
 它只是先幫 agent 少走冤枉路，減少那種「只改到一半」的情況。
+
+## 點解我哋咁在意 single source of truth
+
+呢個其實係我哋成套設計好核心嘅一個位。
+
+好多 AI 出事，唔係因為佢睇唔明 code。
+
+反而係因為佢先睇咗人類寫嘅 documentation，當咗嗰啲 prose 係真，之後就冇再返去核對 actual code。
+
+如果份 doc stale 咗，或者 function 明明改過但啲字冇改，AI 就會直接食咗個舊 mental model，跟住一路錯落去。
+
+所以 AI Index 故意唔做一件事：
+
+佢唔會逐個 function 用人話幫你重寫一次。
+
+如果 agent 真係想知個 function 做乜，最穩陣嘅做法就係直接開個 function 睇。
+
+AI Index 只做導航：
+
+- 告訴你去邊度睇
+- 提醒你仲有邊啲位要一齊睇
+- 但唔代替 code 本身講真相
+
+講到最白就係：
+
+- 地圖只係話你應該去邊
+- 真正話畀你知「發生緊乜」嘅，永遠係 code
+
+咁做好處係兩個：
+
+- graph 可以輕好多，唔使變成另一套會 stale 嘅 documentation
+- AI 唔會咁容易畀舊 prose 錨死喺錯誤理解上面
 
 ## 最容易懂的比較方式
 
@@ -154,6 +187,11 @@ AI Index 不是要取代 code。
 「我要改這段 code，而且不要漏掉相關的東西」
 
 那它通常不是最直接的工具。
+
+你可以當成：
+
+- 傳統 docs 比較似旅遊手冊
+- AI Index 比較似你而家要搭邊條線嘅捷運圖
 
 ### 3. AI Index
 
